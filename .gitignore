@@ -1,0 +1,35 @@
+# Secrets
+.env
+configs/.mcp.json
+configs/opencode.json
+configs/task_*.json
+
+# Generated outputs
+output/
+
+# External repositories (cloned during Docker build or setup)
+tau-bench-repo/
+xyne-eval-ops-dashboard/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

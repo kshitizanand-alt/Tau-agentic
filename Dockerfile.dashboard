@@ -1,0 +1,61 @@
+# Dockerfile for tau-agentic dashboard integration
+# Builds an image that can be spawned by the xyne-eval-ops-dashboard
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    wget \
+    build-essential \
+    tmux \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install OpenCode CLI (optional, for opencode agent support)
+RUN npm install -g opencode
+
+# Clone tau-bench-repo (public upstream)
+# Pin to a specific commit for reproducibility if needed
+ARG TAU_BENCH_COMMIT="main"
+RUN git clone https://github.com/sierra-research/tau-bench.git ./tau-bench-repo && \
+    cd tau-bench-repo && \
+    git checkout ${TAU_BENCH_COMMIT} && \
+    pip install --no-cache-dir -e .
+
+# Copy tau-agentic code
+COPY run_agentic.sh .
+COPY run_benchmark.sh .
+COPY generate_summary.py .
+COPY tau_mcp_server.py .
+COPY setup_agentic.sh .
+COPY requirements.txt .
+COPY configs/ ./configs/
+
+# Create directories
+RUN mkdir -p output /app/results
+
+# Make scripts executable
+RUN chmod +x run_agentic.sh run_benchmark.sh setup_agentic.sh
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy dashboard entrypoint
+COPY dashboard_entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD []

@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "description": "Input configuration schema for tau-agentic benchmark registration in xyne-eval-ops-dashboard",
+  "fields": [
+    {
+      "name": "environment",
+      "type": "dropdown",
+      "label": "Environment / Domain",
+      "description": "The task domain to evaluate on",
+      "required": true,
+      "default": "airline",
+      "options": [
+        { "value": "airline", "label": "Airline (Customer Service)" },
+        { "value": "retail", "label": "Retail (E-commerce)" }
+      ]
+    },
+    {
+      "name": "agent",
+      "type": "dropdown",
+      "label": "Coding Agent",
+      "description": "The agent framework to use for task execution",
+      "required": true,
+      "default": "claude",
+      "options": [
+        { "value": "claude", "label": "Claude Code (Anthropic)" },
+        { "value": "opencode", "label": "OpenCode" }
+      ]
+    },
+    {
+      "name": "max_concurrency",
+      "type": "number",
+      "label": "Max Concurrency",
+      "description": "Number of tasks to run in parallel",
+      "required": false,
+      "default": 1,
+      "min": 1,
+      "max": 10
+    },
+    {
+      "name": "task_range",
+      "type": "text",
+      "label": "Task Range",
+      "description": "Range of task IDs to evaluate (e.g., 0-99 for all tasks, 0-9 for quick test)",
+      "required": false,
+      "default": "0-99",
+      "placeholder": "0-99"
+    },
+    {
+      "name": "number_of_trials",
+      "type": "number",
+      "label": "Number of Trials",
+      "description": "Number of independent evaluation runs to average over",
+      "required": false,
+      "default": 1,
+      "min": 1,
+      "max": 5
+    }
+  ],
+  "cli_mappings": {
+    "environment": "--domain",
+    "agent": "--agent-model",
+    "max_concurrency": "--max-concurrency",
+    "task_range": "TASK_RANGE",
+    "number_of_trials": "TRIALS"
+  }
+}

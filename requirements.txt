@@ -1,0 +1,20 @@
+# Core dependencies for tau-agentic
+# Install with: pip install -r requirements.txt
+
+# Tau-bench (installed from local repo)
+-e ./tau-bench-repo
+
+# MCP server framework
+mcp>=1.0.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# Customer simulator via LiteLLM
+litellm>=1.41.0
+
+# Tau-bench dependencies (ensure compatibility)
+openai>=1.13.3
+anthropic>=0.26.1
+numpy>=1.26.4
+tenacity>=8.3.0
