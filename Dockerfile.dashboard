@@ -41,6 +41,8 @@ COPY run_benchmark.sh .
 COPY generate_summary.py .
 COPY tau_mcp_server.py .
 COPY setup_agentic.sh .
+COPY setup.sh .
+COPY run.sh .
 COPY requirements.txt .
 COPY configs/ ./configs/
 
@@ -48,7 +50,7 @@ COPY configs/ ./configs/
 RUN mkdir -p output /app/results
 
 # Make scripts executable
-RUN chmod +x run_agentic.sh run_benchmark.sh setup_agentic.sh
+RUN chmod +x run_agentic.sh run_benchmark.sh setup_agentic.sh setup.sh run.sh
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt

@@ -1,30 +1,30 @@
 {
-  "schema_version": "1.0",
-  "description": "Input configuration schema for tau-agentic benchmark registration in xyne-eval-ops-dashboard",
   "fields": [
     {
+      "name": "model",
+      "type": "text",
+      "label": "Model Alias",
+      "description": "Grid model alias to evaluate (e.g., private-large, open-large)",
+      "required": true,
+      "default": "private-large"
+    },
+    {
       "name": "environment",
-      "type": "dropdown",
+      "type": "text",
       "label": "Environment / Domain",
       "description": "The task domain to evaluate on",
       "required": true,
       "default": "airline",
-      "options": [
-        { "value": "airline", "label": "Airline (Customer Service)" },
-        { "value": "retail", "label": "Retail (E-commerce)" }
-      ]
+      "options": ["airline", "retail"]
     },
     {
       "name": "agent",
-      "type": "dropdown",
+      "type": "text",
       "label": "Coding Agent",
       "description": "The agent framework to use for task execution",
       "required": true,
       "default": "claude",
-      "options": [
-        { "value": "claude", "label": "Claude Code (Anthropic)" },
-        { "value": "opencode", "label": "OpenCode" }
-      ]
+      "options": ["claude", "opencode"]
     },
     {
       "name": "max_concurrency",
@@ -33,8 +33,10 @@
       "description": "Number of tasks to run in parallel",
       "required": false,
       "default": 1,
-      "min": 1,
-      "max": 10
+      "constraints": {
+        "min": 1,
+        "max": 10
+      }
     },
     {
       "name": "task_range",
@@ -43,7 +45,10 @@
       "description": "Range of task IDs to evaluate (e.g., 0-99 for all tasks, 0-9 for quick test)",
       "required": false,
       "default": "0-99",
-      "placeholder": "0-99"
+      "constraints": {
+        "min_length": 1,
+        "max_length": 20
+      }
     },
     {
       "name": "number_of_trials",
@@ -52,15 +57,10 @@
       "description": "Number of independent evaluation runs to average over",
       "required": false,
       "default": 1,
-      "min": 1,
-      "max": 5
+      "constraints": {
+        "min": 1,
+        "max": 5
+      }
     }
-  ],
-  "cli_mappings": {
-    "environment": "--domain",
-    "agent": "--agent-model",
-    "max_concurrency": "--max-concurrency",
-    "task_range": "TASK_RANGE",
-    "number_of_trials": "TRIALS"
-  }
+  ]
 }
