@@ -45,7 +45,11 @@ elif [ "$OS" = "Linux" ]; then
     # Node 20 via NodeSource
     if ! command -v node >/dev/null 2>&1 \
         || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt 18 ]; then
-        curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO -E bash -
+        if [ -n "$SUDO" ]; then
+            curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO -E bash -
+        else
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        fi
         $SUDO apt-get install -y nodejs
     fi
     PYTHON="python3"
