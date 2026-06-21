@@ -467,7 +467,7 @@ for TID in $TASK_IDS; do
 
   # Resume: skip if already done
   if [[ "${RESUME:-}" == "true" ]] && task_already_done "$RES"; then
-    echo "⏭️  Task $tid already completed — skipping (resume mode)"
+    echo "⏭️  Task $TID already completed — skipping (resume mode)"
     SKIPPED=$((SKIPPED + 1))
     R=$(${VENV_PY} -c "import json;print(json.load(open('$RES'))['reward'])" 2>/dev/null || echo 0)
     echo "task $TID reward: $R (cached)"

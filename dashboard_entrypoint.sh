@@ -56,10 +56,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required arguments
-if [ -z "$API_BASE" ] || [ -z "$API_KEY" ] || [ -z "$AGENT_LLM" ]; then
+if [ -z "$API_BASE" ] || [ -z "$AGENT_LLM" ]; then
     echo -e "${RED}[ERROR]${NC} Missing required arguments"
     echo -e "${RED}[ERROR]${NC} Usage: $0 --api-base <url> --api-key <key> --agent-llm <model> [--domain <domain>] [--max-concurrency <n>]"
     exit 1
+fi
+
+# Warn if no API key provided (will fall back to env vars)
+if [ -z "$API_KEY" ]; then
+    echo -e "${YELLOW}[WARN]${NC} No --api-key provided; relying on environment variables"
 fi
 
 echo -e "${BLUE}[INFO]${NC} Starting tau-agentic benchmark"
@@ -70,9 +75,12 @@ echo -e "${BLUE}[INFO]${NC} Max Concurrency: $MAX_CONCURRENCY"
 echo ""
 
 # Set API key env vars (same key, different names for different tools)
-export GRID_AI_API_KEY="$API_KEY"
-export ANTHROPIC_API_KEY="$API_KEY"
-export OPENAI_API_KEY="$API_KEY"
+# Only export if provided — preserve existing env vars when dashboard uses "default key"
+if [ -n "$API_KEY" ]; then
+    export GRID_AI_API_KEY="$API_KEY"
+    export ANTHROPIC_API_KEY="$API_KEY"
+    export OPENAI_API_KEY="$API_KEY"
+fi
 export OPENAI_API_BASE="$API_BASE"
 
 echo -e "${BLUE}[INFO]${NC} API keys configured"
@@ -94,7 +102,12 @@ echo -e "${BLUE}[INFO]${NC} Run ID: $RUN_ID"
 echo ""
 
 # Run the benchmark
-cd /app
+APP_DIR="/app"
+if [ ! -d "$APP_DIR" ]; then
+    APP_DIR="$SCRIPT_DIR"
+    echo -e "${YELLOW}[WARN]${NC} /app not found, using $APP_DIR"
+fi
+cd "$APP_DIR"
 
 ./run_benchmark.sh \
     "$AGENT" \
@@ -111,27 +124,36 @@ echo -e "${BLUE}[INFO]${NC} Copying results to /app/results..."
 mkdir -p /app/results
 
 # Copy summary files
-if [ -d "output/$RUN_ID/summary" ]; then
+if [ -d "output/$RUN_ID/summary" ] && [ -n "$(ls -A "output/$RUN_ID/summary" 2>/dev/null)" ]; then
     cp -r "output/$RUN_ID/summary/"* /app/results/
     echo -e "${GREEN}[SUCCESS]${NC} Summary copied to /app/results/"
+else
+    echo -e "${YELLOW}[WARN]${NC} No summary files to copy"
 fi
 
 # Copy raw results
-if [ -f "output/$RUN_ID/results_${AGENT}+${AGENT_LLM}.json" ]; then
-    cp "output/$RUN_ID/results_${AGENT}+${AGENT_LLM}.json" /app/results/results.json
+RESULTS_FILE="output/$RUN_ID/results_${AGENT}+${AGENT_LLM}.json"
+if [ -f "$RESULTS_FILE" ]; then
+    cp "$RESULTS_FILE" /app/results/results.json
     echo -e "${GREEN}[SUCCESS]${NC} Raw results copied to /app/results/results.json"
+else
+    echo -e "${YELLOW}[WARN]${NC} Results file not found: $RESULTS_FILE"
 fi
 
 # Generate dashboard-compatible output with Average score
 # The dashboard's TauParser looks for "Average: X.XXXX"
 SUMMARY_JSON="/app/results/summary.json"
 if [ -f "$SUMMARY_JSON" ]; then
-    PASS_AT_1=$(python3 -c "import json; print(json.load(open('$SUMMARY_JSON'))['pass_at_1'])")
-    echo ""
-    echo "=========================================="
-    echo "Average: $PASS_AT_1"
-    echo "=========================================="
-    echo ""
+    PASS_AT_1=$(python3 -c "import json; print(json.load(open('$SUMMARY_JSON'))['pass_at_1'])" 2>/dev/null || echo "N/A")
+    if [ "$PASS_AT_1" != "N/A" ]; then
+        echo ""
+        echo "=========================================="
+        echo "Average: $PASS_AT_1"
+        echo "=========================================="
+        echo ""
+    else
+        echo -e "${YELLOW}[WARN]${NC} Could not extract pass_at_1 from summary"
+    fi
 fi
 
 echo -e "${GREEN}[SUCCESS]${NC} tau-agentic benchmark complete!"
