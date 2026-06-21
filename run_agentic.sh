@@ -14,6 +14,9 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Ensure configs directory exists (needed on fresh VMs where it wasn't created)
+mkdir -p "${SCRIPT_DIR}/configs"
+
 # ---------- defaults ----------
 AGENT="claude"               # coding agent under test: claude | opencode
 MODEL=""                     # the agent's brain (the model under test) — required
@@ -71,6 +74,7 @@ LABEL="${AGENT}+${MODEL}"
 # regardless of which directory it resolves relative paths from.
 write_mcp_config() {
   local task_config="$1"
+  mkdir -p "${SCRIPT_DIR}/configs"
   cat > "${SCRIPT_DIR}/configs/.mcp.json" <<JSON
 {
   "mcpServers": {
@@ -94,6 +98,7 @@ JSON
 # Generate opencode.json for the opencode agent (task-specific MCP env vars)
 write_opencode_config() {
   local task_config="$1"
+  mkdir -p "${SCRIPT_DIR}/configs"
   cat > "${SCRIPT_DIR}/configs/opencode.json" <<JSON
 {
   "\$schema": "https://opencode.ai/config.json",
