@@ -84,12 +84,18 @@ RUN_ID="$5"
 PARALLEL="${6:-1}"
 
 # Expand ranges like "0-49" to "0 1 2 ... 49"
+# Falls back to Python if seq is not available (minimal Linux distros)
 expand_range() {
     local arg="$1"
     if [[ "$arg" =~ ^([0-9]+)-([0-9]+)$ ]]; then
         local start="${BASH_REMATCH[1]}"
         local end="${BASH_REMATCH[2]}"
-        seq -s ' ' "$start" "$end"
+        if command -v seq >/dev/null 2>&1; then
+            seq -s ' ' "$start" "$end"
+        else
+            # Fallback: Python is guaranteed since we built the venv
+            python3 -c "print(' '.join(str(i) for i in range($start, $end + 1)))"
+        fi
     else
         echo "$arg"
     fi

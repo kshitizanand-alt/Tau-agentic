@@ -98,8 +98,35 @@ echo "      tau-bench + mcp installed OK"
 # 5. CODING AGENTS
 # =============================================================================
 echo "[5/6] Installing coding agents..."
-npm install -g @anthropic-ai/claude-code
-npm install -g opencode-ai   # NOTE: verify package name against current OpenCode docs
+
+# Install Claude Code CLI (best-effort; may fail on fresh VMs without proper npm setup)
+if command -v npm >/dev/null 2>&1; then
+    # Ensure global npm bin is in PATH (varies by OS/install method)
+    NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || npm root -g 2>/dev/null)/../bin"
+    if [ -d "$NPM_GLOBAL_BIN" ]; then
+        export PATH="$NPM_GLOBAL_BIN:$PATH"
+    fi
+    # Also add common npm global locations
+    export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+    # Install with unsafe-perm to allow post-install scripts on root-owned systems
+    npm install -g --unsafe-perm @anthropic-ai/claude-code 2>/dev/null || echo "    ⚠️  Claude Code install failed (will retry later)"
+    npm install -g --unsafe-perm opencode 2>/dev/null || echo "    ⚠️  OpenCode install failed (will retry later)"
+
+    # Verify they're in PATH now
+    if command -v claude >/dev/null 2>&1; then
+        echo "    ✓ claude CLI available: $(which claude)"
+    else
+        echo "    ⚠️  claude CLI not in PATH after install"
+    fi
+    if command -v opencode >/dev/null 2>&1; then
+        echo "    ✓ opencode CLI available: $(which opencode)"
+    else
+        echo "    ⚠️  opencode CLI not in PATH after install"
+    fi
+else
+    echo "    ⚠️  npm not available — skipping coding agent install"
+fi
 
 # =============================================================================
 # 6. OUTPUT DIR
