@@ -42,6 +42,9 @@ while [[ $# -gt 0 ]]; do
 done
 [ -z "$MODEL" ] && { echo "--model is required (the agent's brain)"; exit 1; }
 
+echo "[INFO] Agent model (brain): $MODEL"
+echo "[INFO] User model (customer simulator): $USER_MODEL"
+
 # ---------- credentials & model routing (the recipe from swe-auto-eval) ------
 : "${GRID_AI_API_KEY:?Set GRID_AI_API_KEY (export it or 'source .env')}"
 
