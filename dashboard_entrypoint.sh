@@ -25,46 +25,50 @@ MAX_CONCURRENCY=1
 AGENT="claude"
 TASK_RANGE="0-99"
 
-# Parse CLI arguments (supports both --key value and --key=value)
+# Debug: show raw args
+echo -e "${BLUE}[DEBUG]${NC} Raw args: $*"
+echo -e "${BLUE}[DEBUG]${NC} Env vars: DASHBOARD_API_KEY='${DASHBOARD_API_KEY:0:4}***' GRID_AI_API_KEY='${GRID_AI_API_KEY:0:4}***' ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:0:4}***' OPENAI_API_KEY='${OPENAI_API_KEY:0:4}***'"
+
+# Parse CLI arguments (supports --key=value, --key value, -key=value, -key value, --key_value, -key_value)
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --api-base=*)
+        --api-base=*|-api-base=*|--api_base=*|-api_base=*)
             API_BASE="${1#*=}"
             shift
             ;;
-        --api-base)
+        --api-base|-api-base|--api_base|-api_base)
             API_BASE="${2:-}"
             shift 2
             ;;
-        --api-key=*)
+        --api-key=*|-api-key=*|--api_key=*|-api_key=*)
             API_KEY="${1#*=}"
             shift
             ;;
-        --api-key)
+        --api-key|-api-key|--api_key|-api_key)
             API_KEY="${2:-}"
             shift 2
             ;;
-        --agent-llm=*)
+        --agent-llm=*|-agent-llm=*|--agent_llm=*|-agent_llm=*)
             AGENT_LLM="${1#*=}"
             shift
             ;;
-        --agent-llm)
+        --agent-llm|-agent-llm|--agent_llm|-agent_llm)
             AGENT_LLM="${2:-}"
             shift 2
             ;;
-        --domain=*)
+        --domain=*|-domain=*)
             DOMAIN="${1#*=}"
             shift
             ;;
-        --domain)
+        --domain|-domain)
             DOMAIN="${2:-}"
             shift 2
             ;;
-        --max-concurrency=*)
+        --max-concurrency=*|-max-concurrency=*|--max_concurrency=*|-max_concurrency=*)
             MAX_CONCURRENCY="${1#*=}"
             shift
             ;;
-        --max-concurrency)
+        --max-concurrency|-max-concurrency|--max_concurrency|-max_concurrency)
             MAX_CONCURRENCY="${2:-}"
             shift 2
             ;;
@@ -75,16 +79,58 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Debug: show what we received
-echo -e "${BLUE}[DEBUG]${NC} Parsed args: API_BASE='$API_BASE' API_KEY='${API_KEY:0:4}***' AGENT_LLM='$AGENT_LLM' DOMAIN='$DOMAIN' MAX_CONCURRENCY='$MAX_CONCURRENCY'"
+# Debug: show what we parsed
+echo -e "${BLUE}[DEBUG]${NC} Parsed: API_BASE='$API_BASE' API_KEY_SET=$([ -n "$API_KEY" ] && echo yes || echo no) AGENT_LLM='$AGENT_LLM' DOMAIN='$DOMAIN' MAX_CONCURRENCY='$MAX_CONCURRENCY'"
 
 # Fall back to environment variables if dashboard injects key that way
+# Check many possible names dashboards use
 if [ -z "$API_KEY" ]; then
-    API_KEY="${DASHBOARD_API_KEY:-${GRID_AI_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-}}}}"
+    API_KEY="${DASHBOARD_API_KEY:-${GRID_AI_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-${API_KEY:-${APIKEY:-${API_TOKEN:-${AUTH_TOKEN:-${BEARER_TOKEN:-${GRID_API_KEY:-${GRIDAI_API_KEY:-${EVAL_API_KEY:-${MODEL_API_KEY:-}}}}}}}}}}}}}"
     if [ -n "$API_KEY" ]; then
         echo -e "${BLUE}[INFO]${NC} Using API key from environment variable"
     fi
 fi
+
+# Try reading from common secret file locations
+if [ -z "$API_KEY" ]; then
+    for secret_file in /run/secrets/api_key /secrets/api_key /etc/secrets/api_key /var/secrets/api_key /app/.api_key /app/secrets/api_key /tmp/api_key; do
+        if [ -f "$secret_file" ]; then
+            API_KEY="$(cat "$secret_file" | tr -d '\n')"
+            echo -e "${BLUE}[INFO]${NC} Using API key from $secret_file"
+            break
+        fi
+    done
+fi
+
+# Dump debug info to file for troubleshooting
+mkdir -p /app/results
+cat > /app/results/debug_env.txt <<EOF
+Debug info generated at $(date)
+Raw args: $*
+Parsed API_BASE: '$API_BASE'
+Parsed API_KEY set: $([ -n "$API_KEY" ] && echo yes || echo no)
+Parsed AGENT_LLM: '$AGENT_LLM'
+Parsed DOMAIN: '$DOMAIN'
+Parsed MAX_CONCURRENCY: '$MAX_CONCURRENCY'
+
+Environment variables checked:
+DASHBOARD_API_KEY='${DASHBOARD_API_KEY:0:4}***'
+GRID_AI_API_KEY='${GRID_AI_API_KEY:0:4}***'
+ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:0:4}***'
+OPENAI_API_KEY='${OPENAI_API_KEY:0:4}***'
+API_KEY='${API_KEY:0:4}***'
+APIKEY='${APIKEY:0:4}***'
+API_TOKEN='${API_TOKEN:0:4}***'
+AUTH_TOKEN='${AUTH_TOKEN:0:4}***'
+BEARER_TOKEN='${BEARER_TOKEN:0:4}***'
+GRID_API_KEY='${GRID_API_KEY:0:4}***'
+GRIDAI_API_KEY='${GRIDAI_API_KEY:0:4}***'
+EVAL_API_KEY='${EVAL_API_KEY:0:4}***'
+MODEL_API_KEY='${MODEL_API_KEY:0:4}***'
+
+All env vars containing 'KEY' or 'TOKEN':
+$(env | grep -iE 'KEY|TOKEN' | sed 's/=.*/=***/' || echo 'None found')
+EOF
 
 # Validate required arguments
 if [ -z "$API_BASE" ] || [ -z "$AGENT_LLM" ]; then
