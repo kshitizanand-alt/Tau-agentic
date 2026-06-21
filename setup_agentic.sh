@@ -40,7 +40,7 @@ elif [ "$OS" = "Linux" ]; then
     if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
     $SUDO apt-get update -qq
     $SUDO apt-get install -y -qq python3 python3-pip python3-venv python3-dev \
-        git curl build-essential libffi-dev libssl-dev tmux \
+        git curl build-essential libffi-dev libssl-dev tmux sudo \
         || error_exit "apt-get install failed"
     # Node 20 via NodeSource
     if ! command -v node >/dev/null 2>&1 \
@@ -59,6 +59,21 @@ else
 fi
 
 echo "    OS: $OS | Python: $($PYTHON --version) | Node: $(node -v) | npm: $(npm -v)"
+
+# =============================================================================
+# 1b. CREATE NON-ROOT USER (for Claude Code — it refuses --dangerously-skip-permissions as root)
+# =============================================================================
+if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
+    if ! id -u claude >/dev/null 2>&1; then
+        echo "[1b/6] Creating non-root user 'claude' for headless agent runs..."
+        useradd -m -s /bin/bash claude || true
+        # Allow claude user to run commands without password (needed for sudo -E -u claude)
+        echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/claude-nopasswd
+        chmod 440 /etc/sudoers.d/claude-nopasswd
+        # Ensure claude user can write to the repo directory
+        chown -R claude:claude "$SCRIPT_DIR" || true
+    fi
+fi
 
 # =============================================================================
 # 2. PYTHON VERSION CHECK (>= 3.10)

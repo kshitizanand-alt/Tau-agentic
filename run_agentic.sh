@@ -122,6 +122,10 @@ write_opencode_config() {
 JSON
 }
 
+# Pre-configure Claude Code to avoid ALL interactive first-run prompts.
+# Without this, tmux sessions hang waiting for human input.
+mkdir -p "${HOME}/.claude"
+
 # Prevent Claude Code from triggering gcloud auth for the Google Drive remote MCP
 # server during headless runs. The cache is repopulated by the VS Code extension
 # when connected to claude.ai, but is irrelevant (and interactive) for CI runs.
@@ -131,10 +135,6 @@ echo '{}' > "${HOME}/.claude/mcp-needs-auth-cache.json"
 # silently instead of hanging the benchmark run.
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 export GOOGLE_APPLICATION_CREDENTIALS=""
-
-# Pre-configure Claude Code to avoid ALL interactive first-run prompts.
-# Without this, tmux sessions hang waiting for human input.
-mkdir -p "${HOME}/.claude"
 if [[ ! -f "${HOME}/.claude/settings.json" ]]; then
   cat > "${HOME}/.claude/settings.json" <<'JSON'
 {
@@ -283,6 +283,15 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
 
   case "$AGENT" in
     claude)
+      # Claude Code refuses --dangerously-skip-permissions when running as root.
+      # Run as the 'claude' user (created by setup_agentic.sh) when root.
+      local claude_user=""
+      if [ "$(id -u)" -eq 0 ] && id -u claude >/dev/null 2>&1; then
+        claude_user="claude"
+        # Ensure claude user owns the repo so it can write results
+        chown -R claude:claude "$SCRIPT_DIR" 2>/dev/null || true
+      fi
+
       local claude_cmd=(
         claude
         --mcp-config "${SCRIPT_DIR}/configs/.mcp.json"
@@ -295,10 +304,17 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
         tmux kill-session -t "$session_name" 2>/dev/null || true
         sleep 0.5
 
+        # Build the command: if root, run as claude user preserving env vars
+        local tmux_cmd
+        if [ -n "$claude_user" ]; then
+          tmux_cmd="sudo -E -u $claude_user bash -lc 'cd \"$SCRIPT_DIR\" && $(printf '%q ' "${claude_cmd[@]}")'"
+        else
+          tmux_cmd="cd \"$SCRIPT_DIR\" && $(printf '%q ' "${claude_cmd[@]}")"
+        fi
+
         # Create tmux session with Claude TUI (user can attach and watch live)
         tmux new-session -d -s "$session_name" \
-          -c "$SCRIPT_DIR" \
-          "${claude_cmd[@]}" \
+          bash -c "$tmux_cmd" \
           > /dev/null 2>&1
 
         # Set large history limit for scrollback (50,000 lines)
