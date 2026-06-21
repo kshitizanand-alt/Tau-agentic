@@ -3,23 +3,42 @@ set -e
 
 echo "[setup.sh] Verifying tau-agentic environment..."
 
-# Check key tools exist
-command -v python3 >/dev/null || { echo "[ERROR] python3 missing"; exit 1; }
-command -v node >/dev/null || { echo "[ERROR] node missing"; exit 1; }
-command -v npm >/dev/null || { echo "[ERROR] npm missing"; exit 1; }
-command -v git >/dev/null || { echo "[ERROR] git missing"; exit 1; }
-command -v tmux >/dev/null || { echo "[ERROR] tmux missing"; exit 1; }
+# Determine Python pip command
+PIP_CMD="python3 -m pip"
 
-# Ensure tau-bench is importable
-python3 -c "from tau_bench.envs import get_env" 2>/dev/null || {
-    echo "[setup.sh] tau-bench not installed, installing..."
-    pip install -e ./tau-bench-repo/ >/dev/null 2>&1
-}
+# Check key tools exist - if not, run full setup
+need_setup=false
 
-# Ensure Python deps
-pip install -q -r requirements.txt 2>/dev/null || true
+command -v python3 >/dev/null || { echo "[setup.sh] python3 missing"; need_setup=true; }
+command -v node >/dev/null || { echo "[setup.sh] node missing"; need_setup=true; }
+command -v npm >/dev/null || { echo "[setup.sh] npm missing"; need_setup=true; }
+command -v git >/dev/null || { echo "[setup.sh] git missing"; need_setup=true; }
+command -v tmux >/dev/null || { echo "[setup.sh] tmux missing"; need_setup=true; }
+
+# Check if tau-bench is importable
+if command -v python3 >/dev/null; then
+    if ! python3 -c "from tau_bench.envs import get_env" 2>/dev/null; then
+        echo "[setup.sh] tau-bench not importable"
+        need_setup=true
+    fi
+else
+    need_setup=true
+fi
 
 # Check claude-code CLI
-command -v claude >/dev/null || { echo "[ERROR] claude CLI missing"; exit 1; }
+command -v claude >/dev/null || { echo "[setup.sh] claude CLI missing"; need_setup=true; }
+
+if [ "$need_setup" = true ]; then
+    echo "[setup.sh] Missing dependencies detected, running setup_agentic.sh..."
+    if [ -f "./setup_agentic.sh" ]; then
+        bash ./setup_agentic.sh
+    else
+        echo "[ERROR] setup_agentic.sh not found. Cannot auto-install dependencies."
+        exit 1
+    fi
+fi
+
+# Ensure Python deps are up to date
+$PIP_CMD install -q -r requirements.txt 2>/dev/null || true
 
 echo "[setup.sh] Environment OK"

@@ -108,7 +108,7 @@ mkdir -p "${SCRIPT_DIR}/output"
 # =============================================================================
 echo ""
 echo "[VERIFY] Checking installation..."
-local all_good=true
+all_good=true
 
 # Check Python packages
 if "${REPO_DIR}/.venv/bin/python" -c "from tau_bench.envs import get_env" 2>/dev/null; then
