@@ -16,7 +16,7 @@ cd "$SCRIPT_DIR"
 # Supports both --key and --key=value formats
 is_dashboard=false
 for arg in "$@"; do
-    if [[ "$arg" == "--api-base"* ]] || [[ "$arg" == "--agent-llm"* ]] || [[ "$arg" == "--api-key"* ]] || [[ "$arg" == "--domain"* ]] || [[ "$arg" == "--max-concurrency"* ]]; then
+    if [[ "$arg" == "--api-base"* ]] || [[ "$arg" == "--agent-llm"* ]] || [[ "$arg" == "--api-key"* ]] || [[ "$arg" == "--domain"* ]] || [[ "$arg" == "--max-concurrency"* ]] || [[ "$arg" == "--agent"* ]] || [[ "$arg" == "--environment"* ]] || [[ "$arg" == "--task-range"* ]] || [[ "$arg" == "--number-of-trials"* ]] || [[ "$arg" == "--model"* ]]; then
         is_dashboard=true
         break
     fi

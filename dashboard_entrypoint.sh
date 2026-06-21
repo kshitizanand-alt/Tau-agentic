@@ -4,8 +4,13 @@ set -e
 # =============================================================================
 # dashboard_entrypoint.sh — Entrypoint for xyne-eval-ops-dashboard
 #
-# The dashboard spawns a Docker container and passes CLI arguments:
-#   --api-base <url> --api-key <key> --agent-llm <model> [--domain <domain>] [--max-concurrency <n>]
+# The dashboard passes CLI arguments in this format:
+#   <api_key> <run_id> --agent <agent> --environment <domain> \
+#       --max-concurrency <n> --number-of-trials <n> --task-range <range>
+#
+# Example:
+#   sk-xxx 69fb6708-00a9-4e55-b368-ec96f21c81d7 --agent claude \
+#       --environment airline --max-concurrency 1 --number-of-trials 1 --task-range 0-1
 #
 # This script maps those to tau-agentic arguments and runs the benchmark.
 # =============================================================================
@@ -24,66 +29,172 @@ DOMAIN="airline"
 MAX_CONCURRENCY=1
 AGENT="claude"
 TASK_RANGE="0-99"
+NUM_TRIALS=1
+RUN_ID=""
 
 # Debug: show raw args
 echo -e "${BLUE}[DEBUG]${NC} Raw args: $*"
 echo -e "${BLUE}[DEBUG]${NC} Env vars: DASHBOARD_API_KEY='${DASHBOARD_API_KEY:0:4}***' GRID_AI_API_KEY='${GRID_AI_API_KEY:0:4}***' ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:0:4}***' OPENAI_API_KEY='${OPENAI_API_KEY:0:4}***'"
 
-# Parse CLI arguments (supports --key=value, --key value, -key=value, -key value, --key_value, -key_value)
+# ---------------------------------------------------------------------------
+# Argument parser
+# ---------------------------------------------------------------------------
+# Supports BOTH the actual dashboard format (positional key + --agent etc.)
+# AND the legacy format (--api-base, --api-key, --agent-llm, --domain)
+# ---------------------------------------------------------------------------
+
+positional_count=0
+
 while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --api-base=*|-api-base=*|--api_base=*|-api_base=*)
-            API_BASE="${1#*=}"
+    arg="$1"
+
+    # ----- positional args (actual dashboard format) -----
+    if [[ "$arg" != --* ]]; then
+        positional_count=$((positional_count + 1))
+        if [ "$positional_count" -eq 1 ]; then
+            API_KEY="$arg"
+            echo -e "${BLUE}[DEBUG]${NC} Positional arg 1 → API_KEY"
+        elif [ "$positional_count" -eq 2 ]; then
+            RUN_ID="$arg"
+            echo -e "${BLUE}[DEBUG]${NC} Positional arg 2 → RUN_ID"
+        else
+            echo -e "${YELLOW}[WARN]${NC} Extra positional arg ignored: $arg"
+        fi
+        shift
+        continue
+    fi
+
+    # ----- named args (both actual dashboard and legacy formats) -----
+    case "$arg" in
+        # Legacy --api-base
+        --api-base=*)
+            API_BASE="${arg#*=}"
             shift
             ;;
-        --api-base|-api-base|--api_base|-api_base)
+        --api-base)
             API_BASE="${2:-}"
             shift 2
             ;;
-        --api-key=*|-api-key=*|--api_key=*|-api_key=*)
-            API_KEY="${1#*=}"
+
+        # Legacy --api-key
+        --api-key=*)
+            API_KEY="${arg#*=}"
             shift
             ;;
-        --api-key|-api-key|--api_key|-api_key)
+        --api-key)
             API_KEY="${2:-}"
             shift 2
             ;;
-        --agent-llm=*|-agent-llm=*|--agent_llm=*|-agent_llm=*)
-            AGENT_LLM="${1#*=}"
+
+        # Actual dashboard --agent  (maps to AGENT + derives AGENT_LLM)
+        --agent=*)
+            AGENT="${arg#*=}"
             shift
             ;;
-        --agent-llm|-agent-llm|--agent_llm|-agent_llm)
+        --agent)
+            AGENT="${2:-}"
+            shift 2
+            ;;
+
+        # Legacy --agent-llm
+        --agent-llm=*)
+            AGENT_LLM="${arg#*=}"
+            shift
+            ;;
+        --agent-llm)
             AGENT_LLM="${2:-}"
             shift 2
             ;;
-        --domain=*|-domain=*)
-            DOMAIN="${1#*=}"
+
+        # Dashboard --model (explicit model override)
+        --model=*)
+            AGENT_LLM="${arg#*=}"
             shift
             ;;
-        --domain|-domain)
+        --model)
+            AGENT_LLM="${2:-}"
+            shift 2
+            ;;
+
+        # Actual dashboard --environment  (maps to DOMAIN)
+        --environment=*)
+            DOMAIN="${arg#*=}"
+            shift
+            ;;
+        --environment)
             DOMAIN="${2:-}"
             shift 2
             ;;
-        --max-concurrency=*|-max-concurrency=*|--max_concurrency=*|-max_concurrency=*)
-            MAX_CONCURRENCY="${1#*=}"
+
+        # Legacy --domain
+        --domain=*)
+            DOMAIN="${arg#*=}"
             shift
             ;;
-        --max-concurrency|-max-concurrency|--max_concurrency|-max_concurrency)
+        --domain)
+            DOMAIN="${2:-}"
+            shift 2
+            ;;
+
+        # Actual dashboard --max-concurrency
+        --max-concurrency=*)
+            MAX_CONCURRENCY="${arg#*=}"
+            shift
+            ;;
+        --max-concurrency)
             MAX_CONCURRENCY="${2:-}"
             shift 2
             ;;
+
+        # Actual dashboard --number-of-trials
+        --number-of-trials=*)
+            NUM_TRIALS="${arg#*=}"
+            shift
+            ;;
+        --number-of-trials)
+            NUM_TRIALS="${2:-}"
+            shift 2
+            ;;
+
+        # Actual dashboard --task-range
+        --task-range=*)
+            TASK_RANGE="${arg#*=}"
+            shift
+            ;;
+        --task-range)
+            TASK_RANGE="${2:-}"
+            shift 2
+            ;;
+
+        # Unknown
         *)
-            echo -e "${YELLOW}[WARN]${NC} Unknown argument: $1 (skipping)"
+            echo -e "${YELLOW}[WARN]${NC} Unknown argument: $arg (skipping)"
             shift
             ;;
     esac
 done
 
-# Debug: show what we parsed
-echo -e "${BLUE}[DEBUG]${NC} Parsed: API_BASE='$API_BASE' API_KEY_SET=$([ -n "$API_KEY" ] && echo yes || echo no) AGENT_LLM='$AGENT_LLM' DOMAIN='$DOMAIN' MAX_CONCURRENCY='$MAX_CONCURRENCY'"
+# ---------------------------------------------------------------------------
+# Derive model from agent if not explicitly provided
+# ---------------------------------------------------------------------------
+if [ -z "$AGENT_LLM" ]; then
+    case "$AGENT" in
+        claude)
+            AGENT_LLM="private-large"
+            ;;
+        opencode|open-code)
+            AGENT_LLM="glm-latest"
+            ;;
+        *)
+            AGENT_LLM="private-large"
+            ;;
+    esac
+    echo -e "${BLUE}[INFO]${NC} Derived model '$AGENT_LLM' from agent '$AGENT'"
+fi
 
-# Fall back to environment variables if dashboard injects key that way
-# Check many possible names dashboards use
+# ---------------------------------------------------------------------------
+# API key resolution
+# ---------------------------------------------------------------------------
 if [ -z "$API_KEY" ]; then
     API_KEY="${DASHBOARD_API_KEY:-${GRID_AI_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-${API_KEY:-${APIKEY:-${API_TOKEN:-${AUTH_TOKEN:-${BEARER_TOKEN:-${GRID_API_KEY:-${GRIDAI_API_KEY:-${EVAL_API_KEY:-${MODEL_API_KEY:-}}}}}}}}}}}}}"
     if [ -n "$API_KEY" ]; then
@@ -91,7 +202,6 @@ if [ -z "$API_KEY" ]; then
     fi
 fi
 
-# Try reading from common secret file locations
 if [ -z "$API_KEY" ]; then
     for secret_file in /run/secrets/api_key /secrets/api_key /etc/secrets/api_key /var/secrets/api_key /app/.api_key /app/secrets/api_key /tmp/api_key; do
         if [ -f "$secret_file" ]; then
@@ -102,16 +212,34 @@ if [ -z "$API_KEY" ]; then
     done
 fi
 
-# Dump debug info to file for troubleshooting
-mkdir -p /app/results
-cat > /app/results/debug_env.txt <<EOF
+# ---------------------------------------------------------------------------
+# Generate run ID if not provided
+# ---------------------------------------------------------------------------
+if [ -z "$RUN_ID" ]; then
+    RUN_ID="dashboard_$(date +%s)"
+fi
+
+# ---------------------------------------------------------------------------
+# Debug dump
+# ---------------------------------------------------------------------------
+mkdir -p /app/results 2>/dev/null || mkdir -p results
+DEBUG_FILE="/app/results/debug_env.txt"
+if [ ! -d "/app/results" ]; then
+    DEBUG_FILE="results/debug_env.txt"
+fi
+
+cat > "$DEBUG_FILE" <<EOF
 Debug info generated at $(date)
 Raw args: $*
 Parsed API_BASE: '$API_BASE'
 Parsed API_KEY set: $([ -n "$API_KEY" ] && echo yes || echo no)
+Parsed AGENT: '$AGENT'
 Parsed AGENT_LLM: '$AGENT_LLM'
 Parsed DOMAIN: '$DOMAIN'
 Parsed MAX_CONCURRENCY: '$MAX_CONCURRENCY'
+Parsed NUM_TRIALS: '$NUM_TRIALS'
+Parsed TASK_RANGE: '$TASK_RANGE'
+Parsed RUN_ID: '$RUN_ID'
 
 Environment variables checked:
 DASHBOARD_API_KEY='${DASHBOARD_API_KEY:0:4}***'
@@ -132,53 +260,57 @@ All env vars containing 'KEY' or 'TOKEN':
 $(env | grep -iE 'KEY|TOKEN' | sed 's/=.*/=***/' || echo 'None found')
 EOF
 
-# Validate required arguments
-if [ -z "$API_BASE" ] || [ -z "$AGENT_LLM" ]; then
-    echo -e "${RED}[ERROR]${NC} Missing required arguments"
-    echo -e "${RED}[ERROR]${NC} Usage: $0 --api-base <url> --api-key <key> --agent-llm <model> [--domain <domain>] [--max-concurrency <n>]"
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+if [ -z "$AGENT_LLM" ]; then
+    echo -e "${RED}[ERROR]${NC} Could not determine model. Pass --agent-llm or --agent."
     exit 1
 fi
 
-# Warn if no API key provided (will fall back to env vars)
 if [ -z "$API_KEY" ]; then
-    echo -e "${YELLOW}[WARN]${NC} No --api-key provided; relying on environment variables"
+    echo -e "${YELLOW}[WARN]${NC} No API key found; relying on pre-configured environment"
 fi
 
 echo -e "${BLUE}[INFO]${NC} Starting tau-agentic benchmark"
-echo -e "${BLUE}[INFO]${NC} API Base: $API_BASE"
-echo -e "${BLUE}[INFO]${NC} Agent LLM: $AGENT_LLM"
+echo -e "${BLUE}[INFO]${NC} Agent: $AGENT"
+echo -e "${BLUE}[INFO]${NC} Model: $AGENT_LLM"
 echo -e "${BLUE}[INFO]${NC} Domain: $DOMAIN"
+echo -e "${BLUE}[INFO]${NC} Task Range: $TASK_RANGE"
 echo -e "${BLUE}[INFO]${NC} Max Concurrency: $MAX_CONCURRENCY"
+echo -e "${BLUE}[INFO]${NC} Num Trials: $NUM_TRIALS"
+echo -e "${BLUE}[INFO]${NC} Run ID: $RUN_ID"
 echo ""
 
-# Set API key env vars (same key, different names for different tools)
-# Only export if provided — preserve existing env vars when dashboard uses "default key"
+# ---------------------------------------------------------------------------
+# Configure API keys
+# ---------------------------------------------------------------------------
 if [ -n "$API_KEY" ]; then
     export GRID_AI_API_KEY="$API_KEY"
     export ANTHROPIC_API_KEY="$API_KEY"
     export OPENAI_API_KEY="$API_KEY"
 fi
-export OPENAI_API_BASE="$API_BASE"
+if [ -n "$API_BASE" ]; then
+    export OPENAI_API_BASE="$API_BASE"
+fi
 
 echo -e "${BLUE}[INFO]${NC} API keys configured"
 
-# Determine agent type from model name heuristic
-# If model contains "opencode", use opencode agent; otherwise claude
-if [[ "$AGENT_LLM" == *"opencode"* ]] || [[ "$AGENT_LLM" == *"open-code"* ]]; then
-    AGENT="opencode"
-else
-    AGENT="claude"
-fi
+# Determine agent executable from agent name
+case "$AGENT" in
+    opencode|open-code)
+        AGENT_TYPE="opencode"
+        ;;
+    *)
+        AGENT_TYPE="claude"
+        ;;
+esac
 
-echo -e "${BLUE}[INFO]${NC} Selected agent: $AGENT"
+echo -e "${BLUE}[INFO]${NC} Selected agent type: $AGENT_TYPE"
 
-# Generate a unique run ID
-RUN_ID="dashboard_$(date +%s)"
-
-echo -e "${BLUE}[INFO]${NC} Run ID: $RUN_ID"
-echo ""
-
-# Run the benchmark
+# ---------------------------------------------------------------------------
+# Run benchmark
+# ---------------------------------------------------------------------------
 APP_DIR="/app"
 if [ ! -d "$APP_DIR" ]; then
     APP_DIR="$(pwd)"
@@ -187,20 +319,21 @@ fi
 cd "$APP_DIR"
 
 ./run_benchmark.sh \
-    "$AGENT" \
+    "$AGENT_TYPE" \
     "$AGENT_LLM" \
     "$DOMAIN" \
     "$TASK_RANGE" \
     "$RUN_ID" \
     "$MAX_CONCURRENCY"
 
-# Copy results to /app/results for dashboard pickup
+# ---------------------------------------------------------------------------
+# Copy results for dashboard pickup
+# ---------------------------------------------------------------------------
 echo ""
 echo -e "${BLUE}[INFO]${NC} Copying results to /app/results..."
 
 mkdir -p /app/results
 
-# Copy summary files
 if [ -d "output/$RUN_ID/summary" ] && [ -n "$(ls -A "output/$RUN_ID/summary" 2>/dev/null)" ]; then
     cp -r "output/$RUN_ID/summary/"* /app/results/
     echo -e "${GREEN}[SUCCESS]${NC} Summary copied to /app/results/"
@@ -208,8 +341,7 @@ else
     echo -e "${YELLOW}[WARN]${NC} No summary files to copy"
 fi
 
-# Copy raw results
-RESULTS_FILE="output/$RUN_ID/results_${AGENT}+${AGENT_LLM}.json"
+RESULTS_FILE="output/$RUN_ID/results_${AGENT_TYPE}+${AGENT_LLM}.json"
 if [ -f "$RESULTS_FILE" ]; then
     cp "$RESULTS_FILE" /app/results/results.json
     echo -e "${GREEN}[SUCCESS]${NC} Raw results copied to /app/results/results.json"
@@ -218,7 +350,6 @@ else
 fi
 
 # Generate dashboard-compatible output with Average score
-# The dashboard's TauParser looks for "Average: X.XXXX"
 SUMMARY_JSON="/app/results/summary.json"
 if [ -f "$SUMMARY_JSON" ]; then
     PASS_AT_1=$(python3 -c "import json; print(json.load(open('$SUMMARY_JSON'))['pass_at_1'])" 2>/dev/null || echo "N/A")
