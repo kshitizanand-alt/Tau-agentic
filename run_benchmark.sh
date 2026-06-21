@@ -5,6 +5,7 @@ set -uo pipefail
 #
 # Usage:
 #   ./run_benchmark.sh <agent> <model> <domain> <task_ids> <run_id> [parallel]
+#   ./run_benchmark.sh --api-key <key> --api-base <url> <agent> <model> ...
 #
 # Example:
 #   ./run_benchmark.sh claude private-large retail "0 1 2" run_001 1
@@ -17,11 +18,49 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ---------- parse optional dashboard-style args ----------
+API_KEY=""
+API_BASE=""
+
+# Extract --api-key and --api-base from args, then shift them out
+parsed_args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --api-key)
+            API_KEY="$2"
+            shift 2
+            ;;
+        --api-key=*)
+            API_KEY="${1#*=}"
+            shift
+            ;;
+        --api-base)
+            API_BASE="$2"
+            shift 2
+            ;;
+        --api-base=*)
+            API_BASE="${1#*=}"
+            shift
+            ;;
+        *)
+            parsed_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Restore positional args
+set -- "${parsed_args[@]}"
+
 # ---------- argument parsing ----------
 if [ "$#" -lt 5 ]; then
     echo "Error: Missing required arguments"
     echo ""
-    echo "Usage: $0 <agent> <model> <domain> <task_ids> <run_id> [parallel]"
+    echo "Usage: $0 [<dashboard_opts>] <agent> <model> <domain> <task_ids> <run_id> [parallel]"
+    echo ""
+    echo "Dashboard options:"
+    echo "  --api-key <key>   - API key (also checks env vars)"
+    echo "  --api-base <url>  - API base URL"
     echo ""
     echo "Arguments:"
     echo "  agent     - Coding agent: claude | opencode"
@@ -33,7 +72,7 @@ if [ "$#" -lt 5 ]; then
     echo ""
     echo "Examples:"
     echo "  $0 claude private-large retail \"0 1 2\" test_run"
-    echo "  $0 opencode glm-latest airline \"0-49\" run_001 1"
+    echo "  $0 --api-key sk-xxx claude private-large retail \"0 1 2\" test_run"
     exit 1
 fi
 
@@ -63,16 +102,51 @@ if [ -f ".env" ]; then
     source .env
 fi
 
-# If API key is passed via env (from dashboard), use it
-if [ -n "${GRID_AI_API_KEY:-}" ]; then
-    : # already set
-elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-    export GRID_AI_API_KEY="$ANTHROPIC_API_KEY"
-elif [ -n "${OPENAI_API_KEY:-}" ]; then
-    export GRID_AI_API_KEY="$OPENAI_API_KEY"
+# ---------- API key resolution (matches swe-auto-eval pattern) ----------
+# Priority: CLI --api-key > env vars > secret files
+if [ -n "$API_KEY" ]; then
+    export GRID_AI_API_KEY="$API_KEY"
+    export ANTHROPIC_API_KEY="$API_KEY"
+    export OPENAI_API_KEY="$API_KEY"
+    echo "[INFO] Using API key from --api-key argument"
 else
-    echo "Error: No API key found. Set GRID_AI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
-    exit 1
+    # Check many env var names dashboards might use
+    found_key=""
+    for var_name in GRID_AI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY DASHBOARD_API_KEY API_KEY APIKEY API_TOKEN AUTH_TOKEN BEARER_TOKEN GRID_API_KEY GRIDAI_API_KEY EVAL_API_KEY MODEL_API_KEY; do
+        val="${!var_name:-}"
+        if [ -n "$val" ]; then
+            found_key="$val"
+            echo "[INFO] Using API key from $var_name environment variable"
+            break
+        fi
+    done
+
+    if [ -n "$found_key" ]; then
+        export GRID_AI_API_KEY="$found_key"
+        export ANTHROPIC_API_KEY="$found_key"
+        export OPENAI_API_KEY="$found_key"
+    else
+        # Try secret files
+        for secret_file in /run/secrets/api_key /secrets/api_key /etc/secrets/api_key /var/secrets/api_key /app/.api_key /app/secrets/api_key /tmp/api_key; do
+            if [ -f "$secret_file" ]; then
+                found_key="$(cat "$secret_file" | tr -d '\n')"
+                echo "[INFO] Using API key from $secret_file"
+                export GRID_AI_API_KEY="$found_key"
+                export ANTHROPIC_API_KEY="$found_key"
+                export OPENAI_API_KEY="$found_key"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$found_key" ]; then
+        echo "[WARN] No API key found. Checked env vars: GRID_AI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, DASHBOARD_API_KEY, API_KEY, etc."
+        echo "[WARN] Attempting to run anyway — benchmark will likely fail if key is required."
+    fi
+fi
+
+if [ -n "$API_BASE" ]; then
+    export OPENAI_API_BASE="$API_BASE"
 fi
 
 # ---------- run the benchmark ----------

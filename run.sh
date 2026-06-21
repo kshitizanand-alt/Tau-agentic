@@ -12,10 +12,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Detect dashboard-style invocation by checking for --api-base or --agent-llm
+# Detect dashboard-style invocation by checking for dashboard args
+# Supports both --key and --key=value formats
 is_dashboard=false
 for arg in "$@"; do
-    if [[ "$arg" == "--api-base" ]] || [[ "$arg" == "--agent-llm" ]]; then
+    if [[ "$arg" == "--api-base"* ]] || [[ "$arg" == "--agent-llm"* ]] || [[ "$arg" == "--api-key"* ]] || [[ "$arg" == "--domain"* ]] || [[ "$arg" == "--max-concurrency"* ]]; then
         is_dashboard=true
         break
     fi
