@@ -64,11 +64,11 @@ if [ -f ".env" ]; then
 fi
 
 # If API key is passed via env (from dashboard), use it
-if [ -n "$GRID_AI_API_KEY" ]; then
+if [ -n "${GRID_AI_API_KEY:-}" ]; then
     : # already set
-elif [ -n "$ANTHROPIC_API_KEY" ]; then
+elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     export GRID_AI_API_KEY="$ANTHROPIC_API_KEY"
-elif [ -n "$OPENAI_API_KEY" ]; then
+elif [ -n "${OPENAI_API_KEY:-}" ]; then
     export GRID_AI_API_KEY="$OPENAI_API_KEY"
 else
     echo "Error: No API key found. Set GRID_AI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
