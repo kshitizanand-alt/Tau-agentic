@@ -25,35 +25,66 @@ MAX_CONCURRENCY=1
 AGENT="claude"
 TASK_RANGE="0-99"
 
-# Parse CLI arguments
+# Parse CLI arguments (supports both --key value and --key=value)
 while [[ $# -gt 0 ]]; do
-    case $1 in
+    case "$1" in
+        --api-base=*)
+            API_BASE="${1#*=}"
+            shift
+            ;;
         --api-base)
-            API_BASE="$2"
+            API_BASE="${2:-}"
             shift 2
+            ;;
+        --api-key=*)
+            API_KEY="${1#*=}"
+            shift
             ;;
         --api-key)
-            API_KEY="$2"
+            API_KEY="${2:-}"
             shift 2
+            ;;
+        --agent-llm=*)
+            AGENT_LLM="${1#*=}"
+            shift
             ;;
         --agent-llm)
-            AGENT_LLM="$2"
+            AGENT_LLM="${2:-}"
             shift 2
+            ;;
+        --domain=*)
+            DOMAIN="${1#*=}"
+            shift
             ;;
         --domain)
-            DOMAIN="$2"
+            DOMAIN="${2:-}"
             shift 2
             ;;
+        --max-concurrency=*)
+            MAX_CONCURRENCY="${1#*=}"
+            shift
+            ;;
         --max-concurrency)
-            MAX_CONCURRENCY="$2"
+            MAX_CONCURRENCY="${2:-}"
             shift 2
             ;;
         *)
-            echo -e "${RED}[ERROR]${NC} Unknown argument: $1"
-            exit 1
+            echo -e "${YELLOW}[WARN]${NC} Unknown argument: $1 (skipping)"
+            shift
             ;;
     esac
 done
+
+# Debug: show what we received
+echo -e "${BLUE}[DEBUG]${NC} Parsed args: API_BASE='$API_BASE' API_KEY='${API_KEY:0:4}***' AGENT_LLM='$AGENT_LLM' DOMAIN='$DOMAIN' MAX_CONCURRENCY='$MAX_CONCURRENCY'"
+
+# Fall back to environment variables if dashboard injects key that way
+if [ -z "$API_KEY" ]; then
+    API_KEY="${DASHBOARD_API_KEY:-${GRID_AI_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-}}}}"
+    if [ -n "$API_KEY" ]; then
+        echo -e "${BLUE}[INFO]${NC} Using API key from environment variable"
+    fi
+fi
 
 # Validate required arguments
 if [ -z "$API_BASE" ] || [ -z "$AGENT_LLM" ]; then
@@ -104,7 +135,7 @@ echo ""
 # Run the benchmark
 APP_DIR="/app"
 if [ ! -d "$APP_DIR" ]; then
-    APP_DIR="$SCRIPT_DIR"
+    APP_DIR="$(pwd)"
     echo -e "${YELLOW}[WARN]${NC} /app not found, using $APP_DIR"
 fi
 cd "$APP_DIR"
