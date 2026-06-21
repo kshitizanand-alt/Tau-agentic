@@ -311,14 +311,19 @@ echo -e "${BLUE}[INFO]${NC} Selected agent type: $AGENT_TYPE"
 # ---------------------------------------------------------------------------
 # Run benchmark
 # ---------------------------------------------------------------------------
-APP_DIR="/app"
-if [ ! -d "$APP_DIR" ]; then
-    APP_DIR="$(pwd)"
-    echo -e "${YELLOW}[WARN]${NC} /app not found, using $APP_DIR"
-fi
-cd "$APP_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-./run_benchmark.sh \
+# Try /app first (Docker), fall back to script's directory
+APP_DIR="/app"
+if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/run_benchmark.sh" ]; then
+    cd "$APP_DIR"
+    echo -e "${BLUE}[INFO]${NC} Using /app directory"
+else
+    cd "$SCRIPT_DIR"
+    echo -e "${BLUE}[INFO]${NC} Using script directory: $SCRIPT_DIR"
+fi
+
+"$SCRIPT_DIR/run_benchmark.sh" \
     "$AGENT_TYPE" \
     "$AGENT_LLM" \
     "$DOMAIN" \
