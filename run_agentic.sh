@@ -199,6 +199,21 @@ WHAT NOT TO DO (these cause instant failure):
 
 Remember: EVERY customer interaction MUST go through reply_to_customer(). No exceptions. The chat is LIVE. Keep going until '[the conversation has ended]' appears."
 
+# ---------- signal handling --------------------------------------------------
+# Clean up tmux sessions on SIGTERM/SIGINT so dashboard kills don't leave orphans
+cleanup_on_exit() {
+  echo ""
+  echo "[SIGNAL] Caught termination signal — cleaning up tmux sessions..."
+  # Kill all tmux sessions matching our run prefix
+  tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tau-' | while read -r s; do
+    tmux kill-session -t "$s" 2>/dev/null || true
+    echo "  Killed tmux session: $s"
+  done
+  echo "[SIGNAL] Cleanup complete"
+  exit 130
+}
+trap cleanup_on_exit INT TERM
+
 # ---------- helper functions -------------------------------------------------
 
 # Check if a task already has a valid result (for resume mode)
@@ -241,24 +256,46 @@ session_alive() {
 
 # Send prompt via tmux load-buffer + paste-buffer (production pattern from swe-auto-eval)
 # This avoids "command too long" errors and race conditions in parallel runs.
+# Retries with exponential backoff (matching claude_agent_v3.py pattern).
 send_prompt_via_buffer() {
   local session_name="$1"
   local prompt="$2"
+  local max_retries=3
+  local attempt=0
+  local backoff=1
 
-  # Step 1: Load prompt into named buffer (unique per session)
-  printf '%s' "$prompt" | tmux load-buffer -b "$session_name" - 2>/dev/null
-  if [[ $? -ne 0 ]]; then
-    echo "   ❌ load-buffer failed"
-    return 1
-  fi
-  sleep 0.5
+  while [[ $attempt -lt $max_retries ]]; do
+    attempt=$((attempt + 1))
 
-  # Step 2: Paste from named buffer into session
-  tmux paste-buffer -b "$session_name" -t "$session_name" 2>/dev/null
-  if [[ $? -ne 0 ]]; then
-    echo "   ❌ paste-buffer failed"
-    return 1
-  fi
+    # Step 1: Load prompt into named buffer (unique per session)
+    if printf '%s' "$prompt" | tmux load-buffer -b "$session_name" - 2>/dev/null; then
+      :
+    else
+      echo "   ⚠️  load-buffer failed (attempt $attempt/$max_retries)"
+      if [[ $attempt -lt $max_retries ]]; then
+        sleep "$backoff"
+        backoff=$(awk "BEGIN {print $backoff * 1.5}")
+        continue
+      fi
+      echo "   ❌ load-buffer failed after $max_retries attempts"
+      return 1
+    fi
+    sleep 0.5
+
+    # Step 2: Paste from named buffer into session
+    if tmux paste-buffer -b "$session_name" -t "$session_name" 2>/dev/null; then
+      break  # Success
+    else
+      echo "   ⚠️  paste-buffer failed (attempt $attempt/$max_retries)"
+      if [[ $attempt -lt $max_retries ]]; then
+        sleep "$backoff"
+        backoff=$(awk "BEGIN {print $backoff * 1.5}")
+        continue
+      fi
+      echo "   ❌ paste-buffer failed after $max_retries attempts"
+      return 1
+    fi
+  done
 
   # Step 3: Adaptive delay based on prompt size (critical fix from swe-auto-eval)
   # Claude Code needs time to process large pastes before accepting Enter.
@@ -320,8 +357,8 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
 
       local claude_cmd=(
         claude
-        --mcp-config "${SCRIPT_DIR}/configs/.mcp.json"
-        --model "$MODEL"
+        --mcp-config="${SCRIPT_DIR}/configs/.mcp.json"
+        --model="$MODEL"
         --dangerously-skip-permissions
       )
 
