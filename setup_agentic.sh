@@ -67,12 +67,32 @@ if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
     if ! id -u claude >/dev/null 2>&1; then
         echo "[1b/6] Creating non-root user 'claude' for headless agent runs..."
         useradd -m -s /bin/bash claude || true
-        # Allow claude user to run commands without password (needed for sudo -E -u claude)
+        # Allow claude user to run commands without password (needed for sudo -u claude)
         echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/claude-nopasswd
         chmod 440 /etc/sudoers.d/claude-nopasswd
-        # Ensure claude user can write to the repo directory
-        chown -R claude:claude "$SCRIPT_DIR" || true
     fi
+    # Ensure claude user can write to the repo directory
+    chown -R claude:claude "$SCRIPT_DIR" || true
+
+    # Pre-configure Claude Code in claude user's home to skip ALL first-run prompts
+    local claude_home="/home/claude"
+    mkdir -p "$claude_home/.claude"
+    chown -R claude:claude "$claude_home/.claude"
+
+    # Settings: skip welcome, theme picker, telemetry
+    cat > "$claude_home/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark",
+  "telemetry": false,
+  "autoUpdate": false,
+  "welcomeShown": true
+}
+JSON
+    chown claude:claude "$claude_home/.claude/settings.json"
+
+    # Empty gcloud cache to prevent auth prompt
+    echo '{}' > "$claude_home/.claude/mcp-needs-auth-cache.json"
+    chown claude:claude "$claude_home/.claude/mcp-needs-auth-cache.json"
 fi
 
 # =============================================================================

@@ -304,10 +304,31 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
         tmux kill-session -t "$session_name" 2>/dev/null || true
         sleep 0.5
 
-        # Build the command: if root, run as claude user preserving env vars
+        # Build the command: if root, run as claude user with correct HOME
+        # sudo -E preserves root's HOME=/root which breaks Claude Code config lookup.
+        # We explicitly set HOME and pass only the env vars Claude needs.
         local tmux_cmd
         if [ -n "$claude_user" ]; then
-          tmux_cmd="sudo -E -u $claude_user bash -lc 'cd \"$SCRIPT_DIR\" && $(printf '%q ' "${claude_cmd[@]}")'"
+          # Export all needed env vars explicitly for the claude user
+          local env_export=""
+          env_export+="export HOME=/home/claude;"
+          env_export+="export PATH=\"$PATH\";"
+          env_export+="export GRID_AI_API_KEY=\"$GRID_AI_API_KEY\";"
+          env_export+="export OPENAI_API_BASE=\"$OPENAI_API_BASE\";"
+          env_export+="export OPENAI_API_KEY=\"$OPENAI_API_KEY\";"
+          env_export+="export ANTHROPIC_BASE_URL=\"$ANTHROPIC_BASE_URL\";"
+          env_export+="export ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY\";"
+          env_export+="export ANTHROPIC_MODEL=\"$ANTHROPIC_MODEL\";"
+          env_export+="export ANTHROPIC_SMALL_FAST_MODEL=\"$ANTHROPIC_SMALL_FAST_MODEL\";"
+          env_export+="export ANTHROPIC_DEFAULT_SONNET_MODEL=\"$ANTHROPIC_DEFAULT_SONNET_MODEL\";"
+          env_export+="export ANTHROPIC_DEFAULT_OPUS_MODEL=\"$ANTHROPIC_DEFAULT_OPUS_MODEL\";"
+          env_export+="export ANTHROPIC_DEFAULT_HAIKU_MODEL=\"$ANTHROPIC_DEFAULT_HAIKU_MODEL\";"
+          env_export+="export CLAUDE_CODE_SUBAGENT_MODEL=\"$CLAUDE_CODE_SUBAGENT_MODEL\";"
+          env_export+="export CLOUDSDK_CORE_DISABLE_PROMPTS=1;"
+          env_export+="export GOOGLE_APPLICATION_CREDENTIALS=\"\";"
+          env_export+="export TAU_TASK_CONFIG=\"$TAU_TASK_CONFIG\";"
+          env_export+="cd \"$SCRIPT_DIR\";"
+          tmux_cmd="sudo -u $claude_user bash -lc '$env_export $(printf '%q ' "${claude_cmd[@]}")'"
         else
           tmux_cmd="cd \"$SCRIPT_DIR\" && $(printf '%q ' "${claude_cmd[@]}")"
         fi
@@ -347,9 +368,43 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           fi
         done
 
-        # Dismiss any startup confirmation prompt only if we see one
+        # Dismiss first-run interactive prompts that hang headless runs
+        # These appear when Claude Code hasn't been fully configured yet
         local pane_before
-        pane_before=$(capture_pane "$session_name" 10)
+        pane_before=$(capture_pane "$session_name" 30)
+        
+        # Theme picker: "Choose the text style" — select Dark mode (option 2)
+        if echo "$pane_before" | grep -qiE "(choose the text style|theme|dark mode|light mode)"; then
+          echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
+          tmux send-keys -t "$session_name" "2" 2>/dev/null
+          sleep 1
+          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+          sleep 2
+          pane_before=$(capture_pane "$session_name" 30)
+        fi
+        
+        # API key confirmation: "Do you want to use this API key?" — select No (option 2)
+        # We want Claude to use our env var, not cache the key
+        if echo "$pane_before" | grep -qiE "(detected a custom api key|do you want to use this api key)"; then
+          echo "   🔑  Dismissing API key confirmation (selecting No)..."
+          tmux send-keys -t "$session_name" "2" 2>/dev/null
+          sleep 1
+          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+          sleep 2
+          pane_before=$(capture_pane "$session_name" 30)
+        fi
+        
+        # Login method: "Select login method" — select Anthropic Console (option 2)
+        if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
+          echo "   🔐  Dismissing login method selection (selecting Anthropic Console)..."
+          tmux send-keys -t "$session_name" "2" 2>/dev/null
+          sleep 1
+          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+          sleep 2
+          pane_before=$(capture_pane "$session_name" 30)
+        fi
+
+        # Generic startup confirmation prompt
         if echo "$pane_before" | grep -qiE "(press enter|continue|confirm|acknowledge)"; then
           echo "   ↵  Dismissing startup confirmation prompt..."
           tmux send-keys -t "$session_name" "C-m" 2>/dev/null
