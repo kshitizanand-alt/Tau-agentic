@@ -75,7 +75,7 @@ if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
     chown -R claude:claude "$SCRIPT_DIR" || true
 
     # Pre-configure Claude Code in claude user's home to skip ALL first-run prompts
-    local claude_home="/home/claude"
+    claude_home="/home/claude"
     mkdir -p "$claude_home/.claude"
     chown -R claude:claude "$claude_home/.claude"
 
