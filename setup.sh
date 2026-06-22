@@ -25,8 +25,10 @@ else
     need_setup=true
 fi
 
-# Check claude-code CLI
-command -v claude >/dev/null || { echo "[setup.sh] claude CLI missing"; need_setup=true; }
+# Check claude-code CLI (warning only — not a hard requirement for benchmark)
+if ! command -v claude >/dev/null 2>&1; then
+    echo "[setup.sh] WARNING: claude CLI not found (agent may not work)"
+fi
 
 if [ "$need_setup" = true ]; then
     echo "[setup.sh] Missing dependencies detected, running setup_agentic.sh..."

@@ -32,10 +32,16 @@ if not os.environ.get("LITELLM_PROXY_API_BASE"):
     grid_url = os.environ.get("GRID_URL", "https://grid.ai.juspay.net")
     os.environ["LITELLM_PROXY_API_BASE"] = grid_url
 
-from tau_bench.envs import get_env          # same function run.py uses
-from tau_bench.types import Action          # >>> VERIFY <<< Action(name=, kwargs=)
-
-from tau_bench.types import RESPOND_ACTION_NAME
+# Defensive imports — tau-bench API names drift between versions
+try:
+    from tau_bench.envs import get_env          # same function run.py uses
+    from tau_bench.types import Action          # >>> VERIFY <<< Action(name=, kwargs=)
+    from tau_bench.types import RESPOND_ACTION_NAME
+except ImportError as e:
+    import sys
+    print(f"[FATAL] tau-bench import failed: {e}", file=sys.stderr)
+    print("[FATAL] Verify tau-bench is installed and API names match.", file=sys.stderr)
+    raise
 
 # ---- which task am I serving? (written by run_agentic.sh) -------------------
 CONFIG_PATH = os.environ.get("TAU_TASK_CONFIG", "mcp_task.json")
@@ -54,17 +60,31 @@ def _ensure_env():
     global _env, _first_message
     if _env is not None:
         return
-    _env = get_env(
-        CFG["domain"],                    # "retail" or "airline"
-        user_strategy="llm",
-        user_model=CFG["user_model"],     # the fake-customer model (via your gateway)
-        user_provider="litellm_proxy",
-        task_split=CFG.get("task_split", "test"),
-        task_index=CFG["task_index"],
-    )
-    _reset = _env.reset(task_index=CFG["task_index"])   # >>> VERIFY <<< .observation
-    _first_message = _reset.observation                  # customer's opening line
-    _record(0.0, False)
+    try:
+        _env = get_env(
+            CFG["domain"],                    # "retail" or "airline"
+            user_strategy="llm",
+            user_model=CFG["user_model"],     # the fake-customer model (via your gateway)
+            user_provider="litellm_proxy",
+            task_split=CFG.get("task_split", "test"),
+            task_index=CFG["task_index"],
+        )
+        _reset = _env.reset(task_index=CFG["task_index"])
+        # Defensive attribute access — tau-bench return types vary by version
+        if hasattr(_reset, "observation"):
+            _first_message = _reset.observation
+        elif hasattr(_reset, "message"):
+            _first_message = _reset.message
+        elif isinstance(_reset, str):
+            _first_message = _reset
+        else:
+            _first_message = str(_reset)
+        _record(0.0, False)
+    except Exception as e:
+        import traceback, sys
+        print(f"[FATAL] _ensure_env() failed: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        raise
 
 
 def _record(reward: float, done: bool) -> None:
@@ -98,9 +118,13 @@ def use_store_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     (which may be an error message — if so, fix your arguments and try again)."""
     _ensure_env()
     try:
-        resp = _env.step(Action(name=tool_name, kwargs=arguments))  # >>> VERIFY <<< .reward/.done/.observation
-        _record(resp.reward, resp.done)
-        return str(resp.observation)
+        resp = _env.step(Action(name=tool_name, kwargs=arguments))
+        # Defensive attribute access — tau-bench return types vary by version
+        reward = getattr(resp, "reward", 0.0)
+        done = getattr(resp, "done", False)
+        observation = getattr(resp, "observation", str(resp))
+        _record(reward, done)
+        return str(observation)
     except Exception as e:
         return f"[store tool error: {e}. Try again or rephrase your arguments.]"
 
@@ -112,10 +136,14 @@ def reply_to_customer(message: str) -> str:
     _ensure_env()
     try:
         resp = _env.step(Action(name=RESPOND_ACTION_NAME, kwargs={"content": message}))
-        _record(resp.reward, resp.done)
-        if resp.done:
-            return str(resp.observation) + "\n\n[the conversation has ended]"
-        return str(resp.observation)
+        # Defensive attribute access — tau-bench return types vary by version
+        reward = getattr(resp, "reward", 0.0)
+        done = getattr(resp, "done", False)
+        observation = getattr(resp, "observation", str(resp))
+        _record(reward, done)
+        if done:
+            return str(observation) + "\n\n[the conversation has ended]"
+        return str(observation)
     except Exception as e:
         return f"[user simulator error: {e}. Retry the reply_to_customer call.]"
 

@@ -48,6 +48,33 @@ done
 echo "[INFO] Agent model (brain): $MODEL"
 echo "[INFO] User model (customer simulator): $USER_MODEL"
 
+# ---------- prerequisite checks ----------
+VENV_PY="${SCRIPT_DIR}/tau-bench-repo/.venv/bin/python"
+
+if [ ! -x "$VENV_PY" ]; then
+    echo "[ERROR] tau-bench venv not found at $VENV_PY"
+    echo "        Run ./setup_agentic.sh first"
+    exit 1
+fi
+
+if [ "$AGENT" = "claude" ] && ! command -v claude >/dev/null 2>&1; then
+    echo "[ERROR] claude CLI not found in PATH"
+    echo "        Run: npm install -g @anthropic-ai/claude-code"
+    exit 1
+fi
+
+if [ "$AGENT" = "opencode" ] && ! command -v opencode >/dev/null 2>&1; then
+    echo "[ERROR] opencode CLI not found in PATH"
+    echo "        Run: npm install -g opencode"
+    exit 1
+fi
+
+if $TMUX && ! command -v tmux >/dev/null 2>&1; then
+    echo "[ERROR] tmux not found but --tmux was requested"
+    echo "        Install tmux or run without --tmux"
+    exit 1
+fi
+
 # ---------- credentials & model routing (the recipe from swe-auto-eval) ------
 : "${GRID_AI_API_KEY:?Set GRID_AI_API_KEY (export it or 'source .env')}"
 
@@ -66,7 +93,6 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
 export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
 
-VENV_PY="${SCRIPT_DIR}/tau-bench-repo/.venv/bin/python"
 OUT="${SCRIPT_DIR}/output/${RUN_ID}"; mkdir -p "$OUT"
 LABEL="${AGENT}+${MODEL}"
 
@@ -312,7 +338,8 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           # Export all needed env vars explicitly for the claude user
           local env_export=""
           env_export+="export HOME=/home/claude;"
-          env_export+="export PATH=\"$PATH\";"
+          # Prepend common npm global bin locations so claude user can find the binary
+          env_export+="export PATH=\"/usr/local/bin:/usr/bin:/bin:$PATH\";"
           env_export+="export GRID_AI_API_KEY=\"$GRID_AI_API_KEY\";"
           env_export+="export OPENAI_API_BASE=\"$OPENAI_API_BASE\";"
           env_export+="export OPENAI_API_KEY=\"$OPENAI_API_KEY\";"
