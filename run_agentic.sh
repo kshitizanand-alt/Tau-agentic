@@ -432,49 +432,66 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           fi
         done
 
-        # Dismiss first-run interactive prompts that hang headless runs
-        # These appear when Claude Code hasn't been fully configured yet
-        local pane_before
-        pane_before=$(capture_pane "$session_name" 30)
-        
-        # Theme picker: "Choose the text style" — select Dark mode (option 2)
-        if echo "$pane_before" | grep -qiE "(choose the text style|theme|dark mode|light mode)"; then
-          echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
-          tmux send-keys -t "$session_name" "2" 2>/dev/null
-          sleep 1
-          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-          sleep 2
-          pane_before=$(capture_pane "$session_name" 30)
-        fi
-        
-        # API key confirmation: "Do you want to use this API key?" — select Yes (option 1)
-        # Selecting No causes Claude Code to fall back to OAuth browser auth,
-        # which fails in a headless VM (browser can't open → "Invalid code").
-        if echo "$pane_before" | grep -qiE "(detected a custom api key|do you want to use this api key)"; then
-          echo "   🔑  Confirming API key usage (selecting Yes)..."
-          tmux send-keys -t "$session_name" "1" 2>/dev/null
-          sleep 1
-          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-          sleep 2
-          pane_before=$(capture_pane "$session_name" 30)
-        fi
-        
-        # Login method: "Select login method" — select Anthropic Console (option 2)
-        if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
-          echo "   🔐  Dismissing login method selection (selecting Anthropic Console)..."
-          tmux send-keys -t "$session_name" "2" 2>/dev/null
-          sleep 1
-          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-          sleep 2
-          pane_before=$(capture_pane "$session_name" 30)
-        fi
+        # Dismiss first-run interactive prompts that hang headless runs.
+        # We use a retry loop because prompts appear sequentially and keys
+        # can carry over between screens if we don't wait long enough.
+        local pane_before prompt_round=0
+        while true; do
+          prompt_round=$((prompt_round + 1))
+          if [[ $prompt_round -gt 10 ]]; then
+            echo "   ⚠️  Prompt dismissal exceeded 10 rounds — proceeding anyway"
+            break
+          fi
 
-        # Generic startup confirmation prompt
-        if echo "$pane_before" | grep -qiE "(press enter|continue|confirm|acknowledge)"; then
-          echo "   ↵  Dismissing startup confirmation prompt..."
-          tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-          sleep 2
-        fi
+          sleep 3
+          pane_before=$(capture_pane "$session_name" 40)
+
+          # Theme picker: "Choose the text style" — select Dark mode (option 2)
+          if echo "$pane_before" | grep -qiE "(choose the text style|theme|dark mode|light mode)"; then
+            echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
+            tmux send-keys -t "$session_name" "2" 2>/dev/null
+            sleep 1
+            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            continue  # Loop back to catch next prompt
+          fi
+
+          # API key confirmation: "Do you want to use this API key?" — select Yes (option 1)
+          # Selecting No causes Claude Code to fall back to OAuth browser auth,
+          # which fails in a headless VM (browser can't open → "Invalid code").
+          if echo "$pane_before" | grep -qiE "(detected a custom api key|do you want to use this api key)"; then
+            echo "   🔑  Confirming API key usage (selecting Yes)..."
+            tmux send-keys -t "$session_name" "1" 2>/dev/null
+            sleep 1
+            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            continue  # Loop back to catch next prompt
+          fi
+
+          # Login method: "Select login method" — select Anthropic Console (option 2)
+          if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
+            echo "   🔐  Dismissing login method selection (selecting Anthropic Console)..."
+            tmux send-keys -t "$session_name" "2" 2>/dev/null
+            sleep 1
+            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            continue  # Loop back to catch next prompt
+          fi
+
+          # Generic startup confirmation prompt
+          if echo "$pane_before" | grep -qiE "(press enter|continue|confirm|acknowledge)"; then
+            echo "   ↵  Dismissing startup confirmation prompt..."
+            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            continue  # Loop back to catch next prompt
+          fi
+
+          # OAuth error / retry prompt
+          if echo "$pane_before" | grep -qiE "(oauth error|invalid code|press enter to retry)"; then
+            echo "   🚨  OAuth error detected — this means API key was rejected. Aborting..."
+            tmux kill-session -t "$session_name" 2>/dev/null || true
+            return 1
+          fi
+
+          # No recognized prompts — we're done
+          break
+        done
 
         # Send instruction using production buffer pattern
         echo "📤 [task $tid] Sending instruction to tmux session..."
