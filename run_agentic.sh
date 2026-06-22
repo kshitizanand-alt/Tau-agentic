@@ -447,11 +447,12 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           pane_before=$(capture_pane "$session_name" 30)
         fi
         
-        # API key confirmation: "Do you want to use this API key?" — select No (option 2)
-        # We want Claude to use our env var, not cache the key
+        # API key confirmation: "Do you want to use this API key?" — select Yes (option 1)
+        # Selecting No causes Claude Code to fall back to OAuth browser auth,
+        # which fails in a headless VM (browser can't open → "Invalid code").
         if echo "$pane_before" | grep -qiE "(detected a custom api key|do you want to use this api key)"; then
-          echo "   🔑  Dismissing API key confirmation (selecting No)..."
-          tmux send-keys -t "$session_name" "2" 2>/dev/null
+          echo "   🔑  Confirming API key usage (selecting Yes)..."
+          tmux send-keys -t "$session_name" "1" 2>/dev/null
           sleep 1
           tmux send-keys -t "$session_name" "C-m" 2>/dev/null
           sleep 2
