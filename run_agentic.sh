@@ -459,31 +459,39 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
         local pane_before prompt_round=0
         while true; do
           prompt_round=$((prompt_round + 1))
-          if [[ $prompt_round -gt 10 ]]; then
-            echo "   ⚠️  Prompt dismissal exceeded 10 rounds — proceeding anyway"
+          if [[ $prompt_round -gt 15 ]]; then
+            echo "   ⚠️  Prompt dismissal exceeded 15 rounds — proceeding anyway"
             break
           fi
 
           sleep 3
           pane_before=$(capture_pane "$session_name" 40)
 
-          # Theme picker: "Choose the text style" — select Dark mode (option 2)
-          if echo "$pane_before" | grep -qiE "(choose the text style|theme|dark mode|light mode)"; then
-            echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
-            tmux send-keys -t "$session_name" "2" 2>/dev/null
-            sleep 1
-            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-            continue  # Loop back to catch next prompt
-          fi
-
           # API key confirmation: "Do you want to use this API key?" — select Yes (option 1)
-          # Selecting No causes Claude Code to fall back to OAuth browser auth,
-          # which fails in a headless VM (browser can't open → "Invalid code").
+          # MUST be checked BEFORE theme picker because the theme grep is broad
+          # and can match "Syntax theme: Monokai" which appears during the
+          # API key prompt transition.  Selecting No causes Claude Code to
+          # fall back to OAuth browser auth, which fails in a headless VM
+          # (browser can't open → "Invalid code" → idle timeout → reward=0).
           if echo "$pane_before" | grep -qiE "(detected a custom api key|do you want to use this api key)"; then
             echo "   🔑  Confirming API key usage (selecting Yes)..."
             tmux send-keys -t "$session_name" "1" 2>/dev/null
-            sleep 1
+            sleep 2
             tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            sleep 3   # Longer wait so next prompt fully renders
+            continue  # Loop back to catch next prompt
+          fi
+
+          # Theme picker: "Choose the text style" — select Dark mode (option 2)
+          # Narrowed grep: only match the actual prompt text, not the word
+          # "theme" or "dark mode" which appear in other contexts (e.g.,
+          # "Syntax theme: Monokai Extended").
+          if echo "$pane_before" | grep -qiE "(choose the text style|text style that looks)"; then
+            echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
+            tmux send-keys -t "$session_name" "2" 2>/dev/null
+            sleep 2
+            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            sleep 3   # Longer wait so next prompt fully renders
             continue  # Loop back to catch next prompt
           fi
 
@@ -491,8 +499,9 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
             echo "   🔐  Dismissing login method selection (selecting Anthropic Console)..."
             tmux send-keys -t "$session_name" "2" 2>/dev/null
-            sleep 1
+            sleep 2
             tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            sleep 3   # Longer wait so next prompt fully renders
             continue  # Loop back to catch next prompt
           fi
 
@@ -500,7 +509,19 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           if echo "$pane_before" | grep -qiE "(press enter|continue|confirm|acknowledge)"; then
             echo "   ↵  Dismissing startup confirmation prompt..."
             tmux send-keys -t "$session_name" "C-m" 2>/dev/null
+            sleep 3   # Longer wait so next prompt fully renders
             continue  # Loop back to catch next prompt
+          fi
+
+          # OAuth browser flow detected — API key was rejected or "No" was
+          # selected.  Abort immediately rather than waiting for the 5-minute
+          # idle timeout.  This happens when the API key prompt is missed.
+          if echo "$pane_before" | grep -qiE "(opening browser|paste code here|sign in|oauth)"; then
+            echo "   🚨  OAuth browser flow detected — API key was not accepted. Aborting early..."
+            echo "   🚨  Pane content:"
+            echo "$pane_before" | head -20 | sed 's/^/      | /'
+            tmux kill-session -t "$session_name" 2>/dev/null || true
+            return 1
           fi
 
           # OAuth error / retry prompt
