@@ -67,7 +67,7 @@ print_syntax_theme() {
 print_apikey_prompt() {
   echo " Detected a custom API key in your environment"
   echo ""
-  echo "ANTHROPIC_API_KEY: sk-ant-...SlUBMxV9PbH5-Y_RGPuQ"
+  echo "ANTHROPIC_API_KEY: sk-ant-...EXAMPLE-REDACTED-KEY"
   echo ""
   echo " Do you want to use this API key?"
   echo ""
