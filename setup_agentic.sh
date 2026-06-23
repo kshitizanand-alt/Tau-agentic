@@ -154,19 +154,15 @@ configure_claude_for_user() {
 
     mkdir -p "$target_home/.claude"
 
-    # Comprehensive settings.json to suppress ALL known first-run prompts.
-    # These keys are based on Claude Code's internal onboarding flow.
+    # Minimal settings: only suppress telemetry/update noise.
+    # Do NOT include skipOnboarding/onboardingCompleted/showedApiKeyNotice —
+    # those flags skip the API key confirmation prompt and send Claude Code
+    # directly to the OAuth login flow, which fails headlessly.
     cat > "$target_home/.claude/settings.json" <<'JSON'
 {
   "theme": "dark",
   "telemetry": false,
   "autoUpdate": false,
-  "welcomeShown": true,
-  "hasRunBefore": true,
-  "skipOnboarding": true,
-  "firstRun": false,
-  "onboardingCompleted": true,
-  "showedApiKeyNotice": true,
   "acceptedTelemetry": false,
   "mcpAutoApprove": true,
   "dangerouslySkipPermissions": true

@@ -43,6 +43,8 @@ dismiss_first_run_prompts() {
     # capture_pane uses -S 0 (visible screen only, no scrollback)
     # Further narrow to last 20 lines to avoid terminal rendering artifacts
     pane_before=$(capture_pane "$session_name" 40 | tail -20)
+    echo "   [round $prompt_round] pane tail:"
+    echo "$pane_before" | tail -8 | sed 's/^/      | /'
 
     # API key confirmation: "Do you want to use this API key?" — select Yes (1)
     # Checked BEFORE theme picker because the theme grep is broad and can match

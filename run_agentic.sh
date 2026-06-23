@@ -159,18 +159,16 @@ ensure_claude_settings() {
   # when connected to claude.ai, but is irrelevant (and interactive) for CI runs.
   echo '{}' > "${target_home}/.claude/mcp-needs-auth-cache.json"
 
-  # Comprehensive settings to suppress onboarding prompts.
+  # Minimal settings: suppress telemetry/update prompts only.
+  # Do NOT set skipOnboarding/onboardingCompleted/showedApiKeyNotice — those flags
+  # cause Claude Code to skip the API key confirmation prompt and jump straight to
+  # the OAuth login method, which cannot complete in a headless environment.
+  # The dismiss_first_run_prompts helper handles any prompts that do appear.
   cat > "${target_home}/.claude/settings.json" <<'JSON'
 {
   "theme": "dark",
   "telemetry": false,
   "autoUpdate": false,
-  "welcomeShown": true,
-  "hasRunBefore": true,
-  "skipOnboarding": true,
-  "firstRun": false,
-  "onboardingCompleted": true,
-  "showedApiKeyNotice": true,
   "acceptedTelemetry": false,
   "mcpAutoApprove": true,
   "dangerouslySkipPermissions": true
@@ -440,15 +438,17 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           return 1
         fi
 
-        # Wait for Claude Code to finish initializing before interacting
+        # Wait for Claude Code to finish initializing before interacting.
+        # Use scrollback capture here (not the visible-screen-only capture_pane)
+        # so the "Welcome" banner is detected even when the terminal is too tall
+        # for the text to be in the visible window.
         echo "   ⏳ Waiting for Claude Code to initialize..."
         local init_wait=0
         while [[ $init_wait -lt 10 ]]; do
           sleep 1
           init_wait=$((init_wait + 1))
           local pane_init
-          pane_init=$(capture_pane "$session_name" 20)
-          # Look for prompt indicators that Claude is ready
+          pane_init=$(tmux capture-pane -t "$session_name" -p -S -30 2>/dev/null || echo "")
           if echo "$pane_init" | grep -qE '(>\s*$|\$\s*|λ\s*|claude\s*\>|Ready|Welcome)'; then
             echo "   ✓ Claude Code appears ready (${init_wait}s)"
             break
