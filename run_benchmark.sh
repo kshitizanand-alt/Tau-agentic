@@ -108,47 +108,33 @@ if [ -f ".env" ]; then
     source .env
 fi
 
-# ---------- API key resolution (matches swe-auto-eval pattern) ----------
-# Priority: CLI --api-key > env vars > secret files
+# ---------- API key resolution ----------
+# Priority:
+#   1. CLI --api-key argument
+#   2. GRID_AI_API_KEY environment variable (primary)
+#   3. DASHBOARD_API_KEY environment variable (fallback)
+# The same key is exported as GRID_AI_API_KEY and ANTHROPIC_API_KEY because
+# Claude Code expects the Anthropic-format env var.
+# ---------------------------------------------------------------------------
+found_key=""
 if [ -n "$API_KEY" ]; then
-    export GRID_AI_API_KEY="$API_KEY"
-    export ANTHROPIC_API_KEY="$API_KEY"
-    export OPENAI_API_KEY="$API_KEY"
+    found_key="$API_KEY"
     echo "[INFO] Using API key from --api-key argument"
+elif [ -n "${GRID_AI_API_KEY:-}" ]; then
+    found_key="$GRID_AI_API_KEY"
+    echo "[INFO] Using API key from GRID_AI_API_KEY environment variable"
+elif [ -n "${DASHBOARD_API_KEY:-}" ]; then
+    found_key="$DASHBOARD_API_KEY"
+    echo "[INFO] Using API key from DASHBOARD_API_KEY environment variable"
+fi
+
+if [ -n "$found_key" ]; then
+    export GRID_AI_API_KEY="$found_key"
+    export ANTHROPIC_API_KEY="$found_key"
+    export OPENAI_API_KEY="$found_key"
 else
-    # Check many env var names dashboards might use
-    found_key=""
-    for var_name in GRID_AI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY DASHBOARD_API_KEY API_KEY APIKEY API_TOKEN AUTH_TOKEN BEARER_TOKEN GRID_API_KEY GRIDAI_API_KEY EVAL_API_KEY MODEL_API_KEY; do
-        val="${!var_name:-}"
-        if [ -n "$val" ]; then
-            found_key="$val"
-            echo "[INFO] Using API key from $var_name environment variable"
-            break
-        fi
-    done
-
-    if [ -n "$found_key" ]; then
-        export GRID_AI_API_KEY="$found_key"
-        export ANTHROPIC_API_KEY="$found_key"
-        export OPENAI_API_KEY="$found_key"
-    else
-        # Try secret files
-        for secret_file in /run/secrets/api_key /secrets/api_key /etc/secrets/api_key /var/secrets/api_key /app/.api_key /app/secrets/api_key /tmp/api_key; do
-            if [ -f "$secret_file" ]; then
-                found_key="$(cat "$secret_file" | tr -d '\n')"
-                echo "[INFO] Using API key from $secret_file"
-                export GRID_AI_API_KEY="$found_key"
-                export ANTHROPIC_API_KEY="$found_key"
-                export OPENAI_API_KEY="$found_key"
-                break
-            fi
-        done
-    fi
-
-    if [ -z "$found_key" ]; then
-        echo "[WARN] No API key found. Checked env vars: GRID_AI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, DASHBOARD_API_KEY, API_KEY, etc."
-        echo "[WARN] Attempting to run anyway — benchmark will likely fail if key is required."
-    fi
+    echo "[WARN] No API key found. Checked --api-key, GRID_AI_API_KEY, DASHBOARD_API_KEY."
+    echo "[WARN] Attempting to run anyway — benchmark will likely fail if key is required."
 fi
 
 if [ -n "$API_BASE" ]; then

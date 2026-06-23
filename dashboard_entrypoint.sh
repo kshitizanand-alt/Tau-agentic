@@ -34,7 +34,7 @@ RUN_ID=""
 
 # Debug: show raw args
 echo -e "${BLUE}[DEBUG]${NC} Raw args: $*"
-echo -e "${BLUE}[DEBUG]${NC} Env vars: DASHBOARD_API_KEY='${DASHBOARD_API_KEY:0:4}***' GRID_AI_API_KEY='${GRID_AI_API_KEY:0:4}***' ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:0:4}***' OPENAI_API_KEY='${OPENAI_API_KEY:0:4}***'"
+echo -e "${BLUE}[DEBUG]${NC} Env vars: GRID_AI_API_KEY='${GRID_AI_API_KEY:0:4}***' ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:0:4}***'"
 
 # ---------------------------------------------------------------------------
 # Argument parser
@@ -76,7 +76,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
-        # Legacy --api-key
+        # Dashboard API key (legacy --api-key or positional)
         --api-key=*)
             API_KEY="${arg#*=}"
             shift
@@ -195,21 +195,18 @@ fi
 # ---------------------------------------------------------------------------
 # API key resolution
 # ---------------------------------------------------------------------------
+# Priority:
+#   1. Positional / --api-key argument from dashboard
+#   2. GRID_AI_API_KEY environment variable (primary)
+#   3. DASHBOARD_API_KEY environment variable (fallback)
+# The same key is exported as GRID_AI_API_KEY and ANTHROPIC_API_KEY because
+# Claude Code expects the Anthropic-format env var.
+# ---------------------------------------------------------------------------
 if [ -z "$API_KEY" ]; then
-    API_KEY="${DASHBOARD_API_KEY:-${GRID_AI_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY:-${API_KEY:-${APIKEY:-${API_TOKEN:-${AUTH_TOKEN:-${BEARER_TOKEN:-${GRID_API_KEY:-${GRIDAI_API_KEY:-${EVAL_API_KEY:-${MODEL_API_KEY:-}}}}}}}}}}}}}"
+    API_KEY="${GRID_AI_API_KEY:-${DASHBOARD_API_KEY:-}}"
     if [ -n "$API_KEY" ]; then
         echo -e "${BLUE}[INFO]${NC} Using API key from environment variable"
     fi
-fi
-
-if [ -z "$API_KEY" ]; then
-    for secret_file in /run/secrets/api_key /secrets/api_key /etc/secrets/api_key /var/secrets/api_key /app/.api_key /app/secrets/api_key /tmp/api_key; do
-        if [ -f "$secret_file" ]; then
-            API_KEY="$(cat "$secret_file" | tr -d '\n')"
-            echo -e "${BLUE}[INFO]${NC} Using API key from $secret_file"
-            break
-        fi
-    done
 fi
 
 # ---------------------------------------------------------------------------
@@ -222,11 +219,10 @@ fi
 # ---------------------------------------------------------------------------
 # Debug dump
 # ---------------------------------------------------------------------------
-mkdir -p /app/results 2>/dev/null || mkdir -p results
-DEBUG_FILE="/app/results/debug_env.txt"
-if [ ! -d "/app/results" ]; then
-    DEBUG_FILE="results/debug_env.txt"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RESULTS_DIR="${SCRIPT_DIR}/results"
+mkdir -p "$RESULTS_DIR"
+DEBUG_FILE="${RESULTS_DIR}/debug_env.txt"
 
 cat > "$DEBUG_FILE" <<EOF
 Debug info generated at $(date)
@@ -242,22 +238,8 @@ Parsed TASK_RANGE: '$TASK_RANGE'
 Parsed RUN_ID: '$RUN_ID'
 
 Environment variables checked:
-DASHBOARD_API_KEY='${DASHBOARD_API_KEY:0:4}***'
 GRID_AI_API_KEY='${GRID_AI_API_KEY:0:4}***'
 ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:0:4}***'
-OPENAI_API_KEY='${OPENAI_API_KEY:0:4}***'
-API_KEY='${API_KEY:0:4}***'
-APIKEY='${APIKEY:0:4}***'
-API_TOKEN='${API_TOKEN:0:4}***'
-AUTH_TOKEN='${AUTH_TOKEN:0:4}***'
-BEARER_TOKEN='${BEARER_TOKEN:0:4}***'
-GRID_API_KEY='${GRID_API_KEY:0:4}***'
-GRIDAI_API_KEY='${GRIDAI_API_KEY:0:4}***'
-EVAL_API_KEY='${EVAL_API_KEY:0:4}***'
-MODEL_API_KEY='${MODEL_API_KEY:0:4}***'
-
-All env vars containing 'KEY' or 'TOKEN':
-$(env | grep -iE 'KEY|TOKEN' | sed 's/=.*/=***/' || echo 'None found')
 EOF
 
 # ---------------------------------------------------------------------------
@@ -311,17 +293,8 @@ echo -e "${BLUE}[INFO]${NC} Selected agent type: $AGENT_TYPE"
 # ---------------------------------------------------------------------------
 # Run benchmark
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Try /app first (Docker), fall back to script's directory
-APP_DIR="/app"
-if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/run_benchmark.sh" ]; then
-    cd "$APP_DIR"
-    echo -e "${BLUE}[INFO]${NC} Using /app directory"
-else
-    cd "$SCRIPT_DIR"
-    echo -e "${BLUE}[INFO]${NC} Using script directory: $SCRIPT_DIR"
-fi
+cd "$SCRIPT_DIR"
+echo -e "${BLUE}[INFO]${NC} Using script directory: $SCRIPT_DIR"
 
 "$SCRIPT_DIR/run_benchmark.sh" \
     "$AGENT_TYPE" \
@@ -335,27 +308,27 @@ fi
 # Copy results for dashboard pickup
 # ---------------------------------------------------------------------------
 echo ""
-echo -e "${BLUE}[INFO]${NC} Copying results to /app/results..."
+echo -e "${BLUE}[INFO]${NC} Copying results to ${RESULTS_DIR}..."
 
-mkdir -p /app/results
+mkdir -p "$RESULTS_DIR"
 
 if [ -d "output/$RUN_ID/summary" ] && [ -n "$(ls -A "output/$RUN_ID/summary" 2>/dev/null)" ]; then
-    cp -r "output/$RUN_ID/summary/"* /app/results/
-    echo -e "${GREEN}[SUCCESS]${NC} Summary copied to /app/results/"
+    cp -r "output/$RUN_ID/summary/"* "$RESULTS_DIR/"
+    echo -e "${GREEN}[SUCCESS]${NC} Summary copied to ${RESULTS_DIR}/"
 else
     echo -e "${YELLOW}[WARN]${NC} No summary files to copy"
 fi
 
 RESULTS_FILE="output/$RUN_ID/results_${AGENT_TYPE}+${AGENT_LLM}.json"
 if [ -f "$RESULTS_FILE" ]; then
-    cp "$RESULTS_FILE" /app/results/results.json
-    echo -e "${GREEN}[SUCCESS]${NC} Raw results copied to /app/results/results.json"
+    cp "$RESULTS_FILE" "$RESULTS_DIR/results.json"
+    echo -e "${GREEN}[SUCCESS]${NC} Raw results copied to ${RESULTS_DIR}/results.json"
 else
     echo -e "${YELLOW}[WARN]${NC} Results file not found: $RESULTS_FILE"
 fi
 
 # Generate dashboard-compatible output with Average score
-SUMMARY_JSON="/app/results/summary.json"
+SUMMARY_JSON="${RESULTS_DIR}/summary.json"
 if [ -f "$SUMMARY_JSON" ]; then
     PASS_AT_1=$(python3 -c "import json; print(json.load(open('$SUMMARY_JSON'))['pass_at_1'])" 2>/dev/null || echo "N/A")
     if [ "$PASS_AT_1" != "N/A" ]; then
@@ -370,4 +343,4 @@ if [ -f "$SUMMARY_JSON" ]; then
 fi
 
 echo -e "${GREEN}[SUCCESS]${NC} tau-agentic benchmark complete!"
-echo -e "${BLUE}[INFO]${NC} Results available in /app/results/"
+echo -e "${BLUE}[INFO]${NC} Results available in ${RESULTS_DIR}/"
