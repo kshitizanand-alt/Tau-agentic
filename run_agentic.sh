@@ -249,13 +249,6 @@ task_already_done() {
   return 1  # false: not done
 }
 
-# Capture tmux pane content safely
-capture_pane() {
-  local session_name="$1"
-  local lines="${2:-50}"
-  tmux capture-pane -t "$session_name" -p -S "-${lines}" 2>/dev/null || echo ""
-}
-
 # Cross-platform md5 hash (macOS md5 vs Linux md5sum)
 hash_md5() {
   if command -v md5sum >/dev/null 2>&1; then
@@ -273,6 +266,15 @@ session_alive() {
   local session_name="$1"
   tmux has-session -t "$session_name" 2>/dev/null
 }
+
+# Source shared prompt dismissal helpers for headless Claude Code runs.
+TMUX_PROMPTS_LIB="${SCRIPT_DIR}/lib/tmux_prompts.sh"
+if [[ -f "$TMUX_PROMPTS_LIB" ]]; then
+  source "$TMUX_PROMPTS_LIB"
+else
+  echo "[ERROR] Shared prompt library not found: $TMUX_PROMPTS_LIB"
+  exit 1
+fi
 
 # Send prompt via tmux load-buffer + paste-buffer (production pattern from swe-auto-eval)
 # This avoids "command too long" errors and race conditions in parallel runs.
@@ -453,87 +455,11 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           fi
         done
 
-        # Dismiss first-run interactive prompts that hang headless runs.
-        # We use a retry loop because prompts appear sequentially and keys
-        # can carry over between screens if we don't wait long enough.
-        local pane_before prompt_round=0
-        while true; do
-          prompt_round=$((prompt_round + 1))
-          if [[ $prompt_round -gt 15 ]]; then
-            echo "   ⚠️  Prompt dismissal exceeded 15 rounds — proceeding anyway"
-            break
-          fi
-
-          sleep 3
-          pane_before=$(capture_pane "$session_name" 40)
-
-          # API key confirmation: "Do you want to use this API key?" — select Yes (option 1)
-          # MUST be checked BEFORE theme picker because the theme grep is broad
-          # and can match "Syntax theme: Monokai" which appears during the
-          # API key prompt transition.  Selecting No causes Claude Code to
-          # fall back to OAuth browser auth, which fails in a headless VM
-          # (browser can't open → "Invalid code" → idle timeout → reward=0).
-          if echo "$pane_before" | grep -qiE "(detected a custom api key|do you want to use this api key)"; then
-            echo "   🔑  Confirming API key usage (selecting Yes)..."
-            tmux send-keys -t "$session_name" "1" 2>/dev/null
-            sleep 2
-            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-            sleep 3   # Longer wait so next prompt fully renders
-            continue  # Loop back to catch next prompt
-          fi
-
-          # Theme picker: "Choose the text style" — select Dark mode (option 2)
-          # Narrowed grep: only match the actual prompt text, not the word
-          # "theme" or "dark mode" which appear in other contexts (e.g.,
-          # "Syntax theme: Monokai Extended").
-          if echo "$pane_before" | grep -qiE "(choose the text style|text style that looks)"; then
-            echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
-            tmux send-keys -t "$session_name" "2" 2>/dev/null
-            sleep 2
-            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-            sleep 3   # Longer wait so next prompt fully renders
-            continue  # Loop back to catch next prompt
-          fi
-
-          # Login method: "Select login method" — select Anthropic Console (option 2)
-          if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
-            echo "   🔐  Dismissing login method selection (selecting Anthropic Console)..."
-            tmux send-keys -t "$session_name" "2" 2>/dev/null
-            sleep 2
-            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-            sleep 3   # Longer wait so next prompt fully renders
-            continue  # Loop back to catch next prompt
-          fi
-
-          # Generic startup confirmation prompt
-          if echo "$pane_before" | grep -qiE "(press enter|continue|confirm|acknowledge)"; then
-            echo "   ↵  Dismissing startup confirmation prompt..."
-            tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-            sleep 3   # Longer wait so next prompt fully renders
-            continue  # Loop back to catch next prompt
-          fi
-
-          # OAuth browser flow detected — API key was rejected or "No" was
-          # selected.  Abort immediately rather than waiting for the 5-minute
-          # idle timeout.  This happens when the API key prompt is missed.
-          if echo "$pane_before" | grep -qiE "(opening browser|paste code here|sign in|oauth)"; then
-            echo "   🚨  OAuth browser flow detected — API key was not accepted. Aborting early..."
-            echo "   🚨  Pane content:"
-            echo "$pane_before" | head -20 | sed 's/^/      | /'
-            tmux kill-session -t "$session_name" 2>/dev/null || true
-            return 1
-          fi
-
-          # OAuth error / retry prompt
-          if echo "$pane_before" | grep -qiE "(oauth error|invalid code|press enter to retry)"; then
-            echo "   🚨  OAuth error detected — this means API key was rejected. Aborting..."
-            tmux kill-session -t "$session_name" 2>/dev/null || true
-            return 1
-          fi
-
-          # No recognized prompts — we're done
-          break
-        done
+        # Dismiss first-run interactive prompts using shared helpers.
+        if ! dismiss_first_run_prompts "$session_name"; then
+          echo "❌ [task $tid] Failed to dismiss first-run prompts / API key rejected"
+          return 1
+        fi
 
         # Send instruction using production buffer pattern
         echo "📤 [task $tid] Sending instruction to tmux session..."
