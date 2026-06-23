@@ -155,7 +155,18 @@ if [[ $result -ne 0 ]]; then
   exit 1
 fi
 
-if echo "$final_pane" | grep -qE '>\s*$'; then
+# OAuth lines like "Paste code here if prompted >" end with ">" but are not the
+# ready prompt. Check for OAuth before checking for the ready state.
+if echo "$final_pane" | grep -qiE "(opening browser|paste code here|oauth)"; then
+  echo "  FAIL: OAuth browser flow detected (API key was rejected)"
+  echo ""
+  echo "  Final pane content (last 30 lines):"
+  echo "$final_pane" | tail -30 | sed 's/^/    | /'
+  exit 1
+fi
+
+# The Claude ready prompt is a bare ">" at the start of a line.
+if echo "$final_pane" | grep -qE '^\s*>\s*$'; then
   echo "  PASS: Reached ready state (API key was accepted)"
   echo ""
   echo "  Final pane content (last 20 lines):"
