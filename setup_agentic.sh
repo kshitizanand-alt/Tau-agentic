@@ -73,26 +73,6 @@ if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
     fi
     # Ensure claude user can write to the repo directory
     chown -R claude:claude "$SCRIPT_DIR" || true
-
-    # Pre-configure Claude Code in claude user's home to skip ALL first-run prompts
-    claude_home="/home/claude"
-    mkdir -p "$claude_home/.claude"
-    chown -R claude:claude "$claude_home/.claude"
-
-    # Settings: skip welcome, theme picker, telemetry
-    cat > "$claude_home/.claude/settings.json" <<'JSON'
-{
-  "theme": "dark",
-  "telemetry": false,
-  "autoUpdate": false,
-  "welcomeShown": true
-}
-JSON
-    chown claude:claude "$claude_home/.claude/settings.json"
-
-    # Empty gcloud cache to prevent auth prompt
-    echo '{}' > "$claude_home/.claude/mcp-needs-auth-cache.json"
-    chown claude:claude "$claude_home/.claude/mcp-needs-auth-cache.json"
 fi
 
 # =============================================================================
@@ -161,6 +141,82 @@ if command -v npm >/dev/null 2>&1; then
     fi
 else
     echo "    ⚠️  npm not available — skipping coding agent install"
+fi
+
+# =============================================================================
+# 5b. PRE-CONFIGURE CLAUDE CODE TO SKIP FIRST-RUN PROMPTS
+# =============================================================================
+# This must happen AFTER npm install so the claude binary exists, and must be
+# done for BOTH root (setup runs as root) and the claude user (runtime user).
+configure_claude_for_user() {
+    local target_home="$1"
+    local target_user="$2"
+
+    mkdir -p "$target_home/.claude"
+
+    # Comprehensive settings.json to suppress ALL known first-run prompts.
+    # These keys are based on Claude Code's internal onboarding flow.
+    cat > "$target_home/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark",
+  "telemetry": false,
+  "autoUpdate": false,
+  "welcomeShown": true,
+  "hasRunBefore": true,
+  "skipOnboarding": true,
+  "firstRun": false,
+  "onboardingCompleted": true,
+  "showedApiKeyNotice": true,
+  "acceptedTelemetry": false,
+  "mcpAutoApprove": true,
+  "dangerouslySkipPermissions": true
+}
+JSON
+
+    # Empty gcloud cache to prevent auth prompt
+    echo '{}' > "$target_home/.claude/mcp-needs-auth-cache.json"
+
+    # Ownership
+    if [ -n "$target_user" ]; then
+        chown -R "$target_user:$(id -gn "$target_user" 2>/dev/null || echo "$target_user")" "$target_home/.claude" 2>/dev/null || true
+    fi
+}
+
+# Configure for current user (root during setup)
+configure_claude_for_user "$HOME" ""
+
+# Configure for claude user on Linux
+if [ "$OS" = "Linux" ] && id -u claude >/dev/null 2>&1; then
+    configure_claude_for_user "/home/claude" "claude"
+fi
+
+# Force Claude Code to consume the settings by running a non-interactive smoke test.
+# This makes any remaining first-run prompts appear once and get auto-dismissed.
+if command -v claude >/dev/null 2>&1; then
+    echo "[5b/6] Running Claude Code headless smoke test to finalize first-run setup..."
+
+    # Build a minimal environment that mimics runtime but with a dummy API key.
+    # We only care about getting past onboarding, not making real API calls.
+    smoke_env=""
+    smoke_env+="export HOME='$HOME';"
+    smoke_env+="export PATH='$PATH';"
+    smoke_env+="export ANTHROPIC_API_KEY='dummy-smoke-test-key';"
+    smoke_env+="export ANTHROPIC_BASE_URL='https://example.invalid';"
+    smoke_env+="export CLOUDSDK_CORE_DISABLE_PROMPTS=1;"
+    smoke_env+="export GOOGLE_APPLICATION_CREDENTIALS='';"
+
+    # Run Claude Code with --print and a tiny prompt, feeding yes/enter to any prompts.
+    # Timeout after 60s so a hung OAuth/login flow doesn't block setup forever.
+    timeout 60 bash -c "$smoke_env printf 'y\\ny\\n1\\n2\\n\\n\\n\\n\\n\\n\\n' | claude --dangerously-skip-permissions --model claude-sonnet-4-5 --print 'say hi' 2>&1" \
+        > /tmp/claude_smoke_test.log 2>&1 || true
+
+    # Show relevant log lines for debugging
+    if grep -qiE "(error|oauth|login|browser|invalid code|press enter)" /tmp/claude_smoke_test.log 2>/dev/null; then
+        echo "    ⚠️  Claude smoke test encountered prompts/errors (non-fatal):"
+        grep -iE "(error|oauth|login|browser|invalid code|press enter)" /tmp/claude_smoke_test.log | head -n 5 | sed 's/^/        /'
+    else
+        echo "    ✓ Claude smoke test completed without obvious onboarding errors"
+    fi
 fi
 
 # =============================================================================

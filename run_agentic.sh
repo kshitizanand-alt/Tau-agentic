@@ -150,27 +150,47 @@ JSON
 
 # Pre-configure Claude Code to avoid ALL interactive first-run prompts.
 # Without this, tmux sessions hang waiting for human input.
-mkdir -p "${HOME}/.claude"
+ensure_claude_settings() {
+  local target_home="$1"
+  mkdir -p "${target_home}/.claude"
 
-# Prevent Claude Code from triggering gcloud auth for the Google Drive remote MCP
-# server during headless runs. The cache is repopulated by the VS Code extension
-# when connected to claude.ai, but is irrelevant (and interactive) for CI runs.
-echo '{}' > "${HOME}/.claude/mcp-needs-auth-cache.json"
+  # Prevent Claude Code from triggering gcloud auth for the Google Drive remote MCP
+  # server during headless runs. The cache is repopulated by the VS Code extension
+  # when connected to claude.ai, but is irrelevant (and interactive) for CI runs.
+  echo '{}' > "${target_home}/.claude/mcp-needs-auth-cache.json"
+
+  # Comprehensive settings to suppress onboarding prompts.
+  cat > "${target_home}/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark",
+  "telemetry": false,
+  "autoUpdate": false,
+  "welcomeShown": true,
+  "hasRunBefore": true,
+  "skipOnboarding": true,
+  "firstRun": false,
+  "onboardingCompleted": true,
+  "showedApiKeyNotice": true,
+  "acceptedTelemetry": false,
+  "mcpAutoApprove": true,
+  "dangerouslySkipPermissions": true
+}
+JSON
+}
+
+# Configure for current user
+ensure_claude_settings "${HOME}"
+
+# Configure for claude user if we'll be running as them
+if [ "$(id -u)" -eq 0 ] && id -u claude >/dev/null 2>&1; then
+  ensure_claude_settings "/home/claude"
+  chown -R claude:claude /home/claude/.claude 2>/dev/null || true
+fi
 
 # Disable gcloud browser prompts so that missing cloud-platform scope fails
 # silently instead of hanging the benchmark run.
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 export GOOGLE_APPLICATION_CREDENTIALS=""
-if [[ ! -f "${HOME}/.claude/settings.json" ]]; then
-  cat > "${HOME}/.claude/settings.json" <<'JSON'
-{
-  "theme": "dark",
-  "telemetry": false,
-  "autoUpdate": false,
-  "welcomeShown": true
-}
-JSON
-fi
 
 INSTRUCTION="You are an automated customer-service evaluation agent in a LIVE CHAT with a customer. You must use ONLY the taubench MCP tools. The conversation continues until the customer says it is done.
 
@@ -375,8 +395,9 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           # Export all needed env vars explicitly for the claude user
           local env_export=""
           env_export+="export HOME=/home/claude;"
-          # Prepend common npm global bin locations so claude user can find the binary
-          env_export+="export PATH=\"/usr/local/bin:/usr/bin:/bin:$PATH\";"
+          # Prepend common npm global bin locations so claude user can find the binary.
+          # npm global installs as root put symlinks in /usr/local/bin or /usr/bin.
+          env_export+="export PATH=\"/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$HOME/.npm-global/bin:$PATH\";"
           env_export+="export GRID_AI_API_KEY=\"$GRID_AI_API_KEY\";"
           env_export+="export OPENAI_API_BASE=\"$OPENAI_API_BASE\";"
           env_export+="export OPENAI_API_KEY=\"$OPENAI_API_KEY\";"
