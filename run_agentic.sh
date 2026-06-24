@@ -368,21 +368,35 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
 
   case "$AGENT" in
     claude)
+      # Write the instruction to a prompt file so it can be piped into Claude
+      # Code headlessly (avoids all shell-quoting and tmux paste issues).
+      local prompt_file="${OUT}/${LABEL}__task_${tid}.prompt.txt"
+      printf '%s' "$INSTRUCTION" > "$prompt_file"
+
       # Claude Code refuses --dangerously-skip-permissions when running as root.
       # Run as the 'claude' user (created by setup_agentic.sh) when root.
       local claude_user=""
       if [ "$(id -u)" -eq 0 ] && id -u claude >/dev/null 2>&1; then
         claude_user="claude"
-        # Ensure claude user owns the repo so it can write results
+        # Ensure claude user owns the repo so it can write results + read prompt
         chown -R claude:claude "$SCRIPT_DIR" 2>/dev/null || true
       fi
 
+      # Headless launch (swe-auto-eval ClaudeAgentV3 pattern): run Claude in
+      # --print mode reading the prompt from stdin. In --print mode there is NO
+      # interactive TUI — no theme picker, no API-key approval prompt, no login
+      # screen — so no prompt-dismissal/keystroke handling is needed at all.
       local claude_cmd=(
         claude
         --mcp-config="${SCRIPT_DIR}/configs/.mcp.json"
         --model="$MODEL"
         --dangerously-skip-permissions
+        --print
+        --output-format stream-json
+        --verbose
       )
+      # The command actually run pipes the prompt file into Claude Code.
+      local run_cmd="cat $(printf '%q' "$prompt_file") | $(printf '%q ' "${claude_cmd[@]}")"
 
       if $TMUX; then
         # Kill any existing session
@@ -415,9 +429,9 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           env_export+="export GOOGLE_APPLICATION_CREDENTIALS=\"\";"
           env_export+="export TAU_TASK_CONFIG=\"$TAU_TASK_CONFIG\";"
           env_export+="cd \"$SCRIPT_DIR\";"
-          tmux_cmd="sudo -u $claude_user bash -lc '$env_export $(printf '%q ' "${claude_cmd[@]}")'"
+          tmux_cmd="sudo -u $claude_user bash -lc '$env_export $run_cmd'"
         else
-          tmux_cmd="cd \"$SCRIPT_DIR\" && $(printf '%q ' "${claude_cmd[@]}")"
+          tmux_cmd="cd \"$SCRIPT_DIR\" && $run_cmd"
         fi
 
         # Create tmux session with Claude TUI (user can attach and watch live)
@@ -432,46 +446,18 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
         # perl is more portable than sed for this (works on both macOS BSD and GNU)
         tmux pipe-pane -t "$session_name" "perl -pe 's/\e\[[0-9;]*m//g' >> '${log_file}'"
 
-        sleep 4  # Let Claude initialize
+        sleep 4  # Let Claude start
 
-        # Verify session is alive
+        # Verify session is alive. In --print mode Claude begins working
+        # immediately on the piped prompt; there are no interactive prompts to
+        # dismiss and nothing to send — the monitor loop just watches for
+        # completion / idle / timeout.
         if ! session_alive "$session_name"; then
           echo "❌ [task $tid] tmux session died immediately"
           return 1
         fi
 
-        # Wait for Claude Code to finish initializing before interacting.
-        # Use scrollback capture here (not the visible-screen-only capture_pane)
-        # so the "Welcome" banner is detected even when the terminal is too tall
-        # for the text to be in the visible window.
-        echo "   ⏳ Waiting for Claude Code to initialize..."
-        local init_wait=0
-        while [[ $init_wait -lt 10 ]]; do
-          sleep 1
-          init_wait=$((init_wait + 1))
-          local pane_init
-          pane_init=$(tmux capture-pane -t "$session_name" -p -S -30 2>/dev/null || echo "")
-          if echo "$pane_init" | grep -qE '(>\s*$|\$\s*|λ\s*|claude\s*\>|Ready|Welcome)'; then
-            echo "   ✓ Claude Code appears ready (${init_wait}s)"
-            break
-          fi
-        done
-
-        # Dismiss first-run interactive prompts using shared helpers.
-        if ! dismiss_first_run_prompts "$session_name"; then
-          echo "❌ [task $tid] Failed to dismiss first-run prompts / API key rejected"
-          return 1
-        fi
-
-        # Send instruction using production buffer pattern
-        echo "📤 [task $tid] Sending instruction to tmux session..."
-        if ! send_prompt_via_buffer "$session_name" "$INSTRUCTION"; then
-          echo "❌ [task $tid] Failed to send prompt"
-          tmux kill-session -t "$session_name" 2>/dev/null || true
-          return 1
-        fi
-
-        echo "🖥️  Task $tid running in tmux: tmux attach -t $session_name"
+        echo "🖥️  Task $tid running headless in tmux: tmux attach -t $session_name"
         echo "    (Ctrl+B then D to detach without stopping)"
 
         # Monitor with timeout and idle detection
@@ -537,7 +523,9 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
         fi
 
       else
-        timeout "$TIMEOUT" "${claude_cmd[@]}" --print "$INSTRUCTION" > "$log_file" 2>&1
+        # Headless, no tmux: pipe the prompt file into Claude Code (claude_cmd
+        # already carries --print --output-format stream-json --verbose).
+        timeout "$TIMEOUT" bash -c "$run_cmd" > "$log_file" 2>&1
         local exit_code=$?
         if [[ $exit_code -eq 124 ]]; then
           echo "🔥 [task $tid] TIMEOUT (${TIMEOUT}s) — agent killed"
