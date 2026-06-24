@@ -93,6 +93,17 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
 export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
 
+# Claude Code behavior/perf settings (matches the production swe-auto-eval setup).
+# DISABLE_INTERLEAVED_THINKING is the key one: with proxied (non-Claude) models
+# served via Grid, interleaved thinking between tool calls makes the agent lose
+# track of tool results — it re-reads each result as empty ("no content") and
+# loops re-issuing the same call. Disabling it keeps the tool-call/result pairing
+# clean so the agent advances the conversation instead of looping.
+export DISABLE_INTERLEAVED_THINKING=true
+export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+export API_TIMEOUT_MS=600000
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+
 OUT="${SCRIPT_DIR}/output/${RUN_ID}"; mkdir -p "$OUT"
 LABEL="${AGENT}+${MODEL}"
 
@@ -192,32 +203,40 @@ fi
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 export GOOGLE_APPLICATION_CREDENTIALS=""
 
-INSTRUCTION="You are an automated customer-service evaluation agent in a LIVE CHAT with a customer. You must use ONLY the taubench MCP tools. The conversation continues until the customer says it is done.
+INSTRUCTION="You are a customer-service agent. You act ONLY by calling the taubench MCP tools. Make exactly ONE tool call per turn; do not write prose.
 
-CRITICAL RULE — NO TEXT OUTPUT:
-You must NEVER write free-text responses. Any text you output is discarded and invisible. The ONLY way to communicate is by calling MCP tools. If you write text, the task fails immediately.
+TOOLS:
+1. get_task() — call ONCE at the very start. Returns the store policy, the available store tools, and the customer's first message.
+2. use_store_tool(tool_name, arguments) — run a store action (look up a user, search flights, book, cancel, etc.). Returns the store's data.
+3. reply_to_customer(message) — send a message to the customer. Its RETURN VALUE is the customer's next message.
 
-AVAILABLE TOOLS (use these exclusively):
-1. get_task() — Call FIRST. Returns store policy, available tools, and the customer's opening message.
-2. use_store_tool(tool_name, arguments) — Execute store actions (lookups, cancellations, returns, etc.).
-3. reply_to_customer(message) — Send messages to the customer. Returns their next reply.
+HOW TOOL RESULTS WORK (read carefully):
+- Every tool call returns a value. That returned value is real information you MUST read and use.
+- The text returned by reply_to_customer IS the customer's reply. Treat it as what the customer just said and act on it.
+- NEVER repeat a question or a tool call the customer/store has already answered. If you just received an answer, move forward — do not ask again.
+- A tool call always succeeds in reaching the system; if a result looks short, that is the actual reply, not an error. Do not re-send the same call hoping for a different result.
 
-MANDATORY LOOP — YOU ARE NOT DONE UNTIL YOU SEE '[the conversation has ended]':
-- Step 1: Call get_task() once.
-- Step 2: Call reply_to_customer() with your response to the customer. It returns their next message.
-- Step 3: If you need store data, call use_store_tool(), then IMMEDIATELY call reply_to_customer() with the result.
-- Step 4: Check the return value of reply_to_customer(). If it DOES NOT end with '[the conversation has ended]', go back to Step 2 immediately. Keep looping.
-- ONLY when reply_to_customer() returns text ending with '[the conversation has ended]' may you stop. Until then, you are IN THE CHAT and must keep responding.
+LOOP:
+1. Call get_task() once.
+2. Decide the single next action and make ONE tool call:
+   - need info from the customer, or ready to confirm/answer them -> reply_to_customer(...)
+   - need store data or must perform an action -> use_store_tool(...), then on a later turn reply_to_customer(...) with the outcome.
+3. Read the returned value, update your understanding, and continue with the next single tool call.
+4. Stop ONLY when reply_to_customer returns text ending with '[the conversation has ended]'.
 
-WHAT NOT TO DO (these cause instant failure):
-- Writing 'Here is what I found:' or any explanatory text — instead, call reply_to_customer() with the information.
-- Asking the customer a question in plain text — instead, call reply_to_customer(message='Your question here').
-- Summarizing at the end in plain text — instead, call reply_to_customer() with the summary.
-- Calling use_store_tool() without immediately following up with reply_to_customer().
-- STOPPING EARLY because you think you have helped enough. The customer decides when the chat ends, not you.
-- Deciding the task is complete before you see '[the conversation has ended]'.
+CRITICAL — AVOID THESE TWO FAILURE MODES:
+1. When the customer agrees to an action (says 'yes' / 'go ahead' / 'book it'), your NEXT tool call must be use_store_tool(...) to ACTUALLY perform it (e.g. book_reservation). Do NOT reply again to re-confirm or re-ask — they already said yes. Act on it.
+2. After the store action succeeds, your NEXT tool call must be reply_to_customer(...) with the confirmation/result. Deliver this — and every message, including the final summary or goodbye — through reply_to_customer(). NEVER write it as plain text.
 
-Remember: EVERY customer interaction MUST go through reply_to_customer(). No exceptions. The chat is LIVE. Keep going until '[the conversation has ended]' appears."
+Every turn must END WITH A TOOL CALL. If your final output is plain text instead of a tool call, the session ends early, the customer never sees it, and the task scores 0 even if everything else was right.
+
+Never repeat a tool call you have already made with the same arguments, and never re-ask something the customer already answered — always move to the next distinct step.
+
+The conversation is over ONLY when the text returned by reply_to_customer() contains '[the conversation has ended]'. Until you literally see that, keep going.
+
+Typical flow: get_task -> gather needed info via reply_to_customer + use_store_tool lookups -> present options/summary via reply_to_customer -> on customer 'yes', use_store_tool to perform the action -> reply_to_customer with confirmation -> continue until '[the conversation has ended]'.
+
+Follow the store policy returned by get_task(). Get explicit customer confirmation before any booking-database change, as the policy requires."
 
 # ---------- signal handling --------------------------------------------------
 # Clean up tmux sessions on SIGTERM/SIGINT so dashboard kills don't leave orphans
@@ -425,6 +444,10 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
           env_export+="export ANTHROPIC_DEFAULT_OPUS_MODEL=\"$ANTHROPIC_DEFAULT_OPUS_MODEL\";"
           env_export+="export ANTHROPIC_DEFAULT_HAIKU_MODEL=\"$ANTHROPIC_DEFAULT_HAIKU_MODEL\";"
           env_export+="export CLAUDE_CODE_SUBAGENT_MODEL=\"$CLAUDE_CODE_SUBAGENT_MODEL\";"
+          env_export+="export DISABLE_INTERLEAVED_THINKING=true;"
+          env_export+="export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1;"
+          env_export+="export API_TIMEOUT_MS=600000;"
+          env_export+="export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000;"
           env_export+="export CLOUDSDK_CORE_DISABLE_PROMPTS=1;"
           env_export+="export GOOGLE_APPLICATION_CREDENTIALS=\"\";"
           env_export+="export TAU_TASK_CONFIG=\"$TAU_TASK_CONFIG\";"
