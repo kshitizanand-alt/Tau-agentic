@@ -160,13 +160,15 @@ ensure_claude_settings() {
   echo '{}' > "${target_home}/.claude/mcp-needs-auth-cache.json"
 
   # Minimal settings: suppress telemetry/update prompts only.
-  # Do NOT set skipOnboarding/onboardingCompleted/showedApiKeyNotice — those flags
-  # cause Claude Code to skip the API key confirmation prompt and jump straight to
-  # the OAuth login method, which cannot complete in a headless environment.
-  # The dismiss_first_run_prompts helper handles any prompts that do appear.
+  # Do NOT pre-set "theme" — when "theme" is set, Claude Code auto-advances past
+  # the theme picker without waiting for input. Our dismiss code then sends "2"
+  # (thinking it's the theme picker) but that input goes to the API key prompt,
+  # selecting "No" and triggering the OAuth flow. Leaving "theme" unset forces
+  # Claude Code to wait for user input on the theme picker; our "2" then goes
+  # to the correct active prompt.
+  # Similarly, do NOT set skipOnboarding/onboardingCompleted/showedApiKeyNotice.
   cat > "${target_home}/.claude/settings.json" <<'JSON'
 {
-  "theme": "dark",
   "telemetry": false,
   "autoUpdate": false,
   "acceptedTelemetry": false,

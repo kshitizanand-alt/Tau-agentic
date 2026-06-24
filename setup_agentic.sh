@@ -155,12 +155,11 @@ configure_claude_for_user() {
     mkdir -p "$target_home/.claude"
 
     # Minimal settings: only suppress telemetry/update noise.
-    # Do NOT include skipOnboarding/onboardingCompleted/showedApiKeyNotice —
-    # those flags skip the API key confirmation prompt and send Claude Code
-    # directly to the OAuth login flow, which fails headlessly.
+    # Do NOT pre-set "theme" — see run_agentic.sh ensure_claude_settings for
+    # the full explanation. Do NOT set skipOnboarding/onboardingCompleted/
+    # showedApiKeyNotice either. dismiss_first_run_prompts handles all prompts.
     cat > "$target_home/.claude/settings.json" <<'JSON'
 {
-  "theme": "dark",
   "telemetry": false,
   "autoUpdate": false,
   "acceptedTelemetry": false,

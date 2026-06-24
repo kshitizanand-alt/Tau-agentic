@@ -61,7 +61,20 @@ dismiss_first_run_prompts() {
       fi
     fi
 
-    # Theme picker: "Choose the text style" — select Dark mode (2)
+    # Syntax-theme guard: if the "Syntax theme: Monokai" display is visible,
+    # Claude Code already auto-advanced past the theme picker (because "theme"
+    # was pre-set in settings.json). Mark dismissed WITHOUT sending "2" — sending
+    # "2" here would go to the currently-active API key prompt and select No.
+    # No 'continue': fall through so other checks (API key, etc.) run this round.
+    if [[ "$dismissed_theme" == false ]]; then
+      if echo "$pane_before" | grep -qiE "(syntax theme|monokai|ctrl\+t to disable)"; then
+        echo "   🎨  Theme already auto-selected (syntax theme display visible) — skipping input..."
+        dismissed_theme=true
+      fi
+    fi
+
+    # Theme picker: "Choose the text style" — select Dark mode (2).
+    # Only fires if the syntax-theme guard above did not already set dismissed_theme.
     if [[ "$dismissed_theme" == false ]]; then
       if echo "$pane_before" | grep -qiE "(choose the text style|text style that looks)"; then
         echo "   🎨  Dismissing theme picker (selecting Dark mode)..."
@@ -74,17 +87,11 @@ dismiss_first_run_prompts() {
       fi
     fi
 
-    # Login method: "Select login method" — select Anthropic Console (2)
-    if [[ "$dismissed_login" == false ]]; then
-      if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
-        echo "   🔐  Dismissing login method selection (selecting Anthropic Console)..."
-        tmux send-keys -t "$session_name" "2" 2>/dev/null
-        sleep 2
-        tmux send-keys -t "$session_name" "C-m" 2>/dev/null
-        sleep 3
-        dismissed_login=true
-        continue
-      fi
+    # Login method screen means API key auth failed — abort immediately.
+    # All login-method options lead to OAuth which cannot complete headlessly.
+    if echo "$pane_before" | grep -qiE "(select login method|claude account with subscription|anthropic console account)"; then
+      echo "   🚨  Login method prompt appeared — API key was not accepted. Aborting..."
+      return 1
     fi
 
     # Generic startup confirmation prompt
