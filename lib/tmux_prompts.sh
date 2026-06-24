@@ -62,14 +62,16 @@ dismiss_first_run_prompts() {
     fi
 
     # Syntax-theme guard: if the "Syntax theme: Monokai" display is visible,
-    # Claude Code already auto-advanced past the theme picker (because "theme"
-    # was pre-set in settings.json). Mark dismissed WITHOUT sending "2" — sending
-    # "2" here would go to the currently-active API key prompt and select No.
-    # No 'continue': fall through so other checks (API key, etc.) run this round.
+    # Claude Code already auto-advanced past the theme picker. Mark dismissed
+    # WITHOUT sending "2" (that would hit the API key prompt and select No).
+    # We 'continue' here so the next round captures the API key prompt, which
+    # appears shortly after the syntax theme display and is not yet in the
+    # 20-line window when this guard fires.
     if [[ "$dismissed_theme" == false ]]; then
       if echo "$pane_before" | grep -qiE "(syntax theme|monokai|ctrl\+t to disable)"; then
         echo "   🎨  Theme already auto-selected (syntax theme display visible) — skipping input..."
         dismissed_theme=true
+        continue
       fi
     fi
 
