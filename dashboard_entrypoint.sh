@@ -296,13 +296,19 @@ echo -e "${BLUE}[INFO]${NC} Selected agent type: $AGENT_TYPE"
 cd "$SCRIPT_DIR"
 echo -e "${BLUE}[INFO]${NC} Using script directory: $SCRIPT_DIR"
 
+# Run benchmark; capture exit code without letting set -e abort the entrypoint.
+# A non-zero exit (agent timeout, score=0, etc.) is a model performance outcome,
+# not a pipeline failure — swe-auto-eval treats these the same way (run_status=
+# "no_patch" vs "error"). Results are collected regardless of exit code.
 "$SCRIPT_DIR/run_benchmark.sh" \
     "$AGENT_TYPE" \
     "$AGENT_LLM" \
     "$DOMAIN" \
     "$TASK_RANGE" \
     "$RUN_ID" \
-    "$MAX_CONCURRENCY"
+    "$MAX_CONCURRENCY" || {
+    echo -e "${YELLOW}[WARN]${NC} run_benchmark.sh exited non-zero — collecting whatever results exist"
+}
 
 # ---------------------------------------------------------------------------
 # Copy results for dashboard pickup

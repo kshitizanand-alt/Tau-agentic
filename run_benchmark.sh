@@ -180,8 +180,32 @@ out_dir = Path(f"output/{run_id}")
 results_file = out_dir / f"results_{agent}+{model}.json"
 
 if not results_file.exists():
-    print(f"ERROR: Results file not found: {results_file}")
-    sys.exit(1)
+    # Infra failure: agent never wrote results (setup crash, binary missing, etc.)
+    # Write a minimal summary so the dashboard can distinguish this from a 0-score run.
+    print(f"[WARN] Results file not found: {results_file} — writing infra_error summary")
+    summary_dir = out_dir / "summary"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "run_id": run_id,
+        "agent": agent,
+        "model": model,
+        "domain": domain,
+        "run_status": "infra_error",
+        "total_tasks": 0,
+        "resolved": 0,
+        "unresolved": 0,
+        "partial": 0,
+        "pass_at_1": 0.0,
+        "rewards": [],
+        "passed_task_indices": [],
+        "failed_task_indices": [],
+        "partial_task_indices": [],
+    }
+    with open(summary_dir / "summary.json", "w") as f:
+        import json as _json
+        _json.dump(summary, f, indent=2)
+    print(f"Summary written: {summary_dir}/summary.json")
+    sys.exit(0)
 
 with open(results_file) as f:
     data = json.load(f)
@@ -194,11 +218,17 @@ passed = [i for i, r in enumerate(rewards) if r == 1.0]
 failed = [i for i, r in enumerate(rewards) if r == 0.0]
 partial = [i for i, r in enumerate(rewards) if 0 < r < 1.0]
 
+# run_status: "completed" = agent ran (conversation started), score is what it is.
+# Mirrors swe-auto-eval's final_status="no_patch" vs "completed" distinction:
+# model performance (score=0) != pipeline failure.
+run_status = "completed"
+
 summary = {
     "run_id": run_id,
     "agent": agent,
     "model": model,
     "domain": domain,
+    "run_status": run_status,
     "total_tasks": len(rewards),
     "resolved": len(passed),
     "unresolved": len(failed),

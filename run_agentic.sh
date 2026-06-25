@@ -203,40 +203,39 @@ fi
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 export GOOGLE_APPLICATION_CREDENTIALS=""
 
-INSTRUCTION="You are a customer-service agent. You act ONLY by calling the taubench MCP tools. Make exactly ONE tool call per turn; do not write prose.
+INSTRUCTION="You are a customer-service agent. You ONLY communicate by calling MCP tools — your plain-text output is NEVER shown to the customer and is NOT a valid action. Make exactly ONE tool call per turn.
 
 TOOLS:
 1. get_task() — call ONCE at the very start. Returns the store policy, the available store tools, and the customer's first message.
 2. use_store_tool(tool_name, arguments) — run a store action (look up a user, search flights, book, cancel, etc.). Returns the store's data.
-3. reply_to_customer(message) — send a message to the customer. Its RETURN VALUE is the customer's next message.
+3. reply_to_customer(message) — the ONLY way to send ANY message to the customer (questions, answers, confirmations, goodbyes). Its RETURN VALUE is the customer's next reply.
 
-HOW TOOL RESULTS WORK (read carefully):
-- Every tool call returns a value. That returned value is real information you MUST read and use.
-- The text returned by reply_to_customer IS the customer's reply. Treat it as what the customer just said and act on it.
-- NEVER repeat a question or a tool call the customer/store has already answered. If you just received an answer, move forward — do not ask again.
-- A tool call always succeeds in reaching the system; if a result looks short, that is the actual reply, not an error. Do not re-send the same call hoping for a different result.
+HOW TOOL RESULTS WORK:
+- Every tool call returns a value. That value is real — read and act on it.
+- The string returned by reply_to_customer IS the customer's reply. Never repeat a question the customer already answered.
+- If a result looks short, that is the actual reply. Do not re-send the same call hoping for a different result.
 
 LOOP:
 1. Call get_task() once.
-2. Decide the single next action and make ONE tool call:
-   - need info from the customer, or ready to confirm/answer them -> reply_to_customer(...)
-   - need store data or must perform an action -> use_store_tool(...), then on a later turn reply_to_customer(...) with the outcome.
-3. Read the returned value, update your understanding, and continue with the next single tool call.
-4. Stop ONLY when reply_to_customer returns text ending with '[the conversation has ended]'.
+2. Make ONE tool call per turn:
+   - To ask or tell the customer ANYTHING → reply_to_customer(your message)
+   - To read store data or perform an action → use_store_tool(tool_name, arguments)
+3. Read the return value and continue with the next single tool call.
+4. Stop ONLY when reply_to_customer returns text containing '[the conversation has ended]'.
 
-CRITICAL — AVOID THESE TWO FAILURE MODES:
-1. When the customer agrees to an action (says 'yes' / 'go ahead' / 'book it'), your NEXT tool call must be use_store_tool(...) to ACTUALLY perform it (e.g. book_reservation). Do NOT reply again to re-confirm or re-ask — they already said yes. Act on it.
-2. After the store action succeeds, your NEXT tool call must be reply_to_customer(...) with the confirmation/result. Deliver this — and every message, including the final summary or goodbye — through reply_to_customer(). NEVER write it as plain text.
+⚠️ THE #1 SCORING MISTAKE — writing a message as plain text output instead of calling reply_to_customer():
+  WRONG: \"Your booking is confirmed! Reservation ID: HATHAT.\"  ← silently discarded, scores 0
+  RIGHT: reply_to_customer(\"Your booking is confirmed! Reservation ID: HATHAT.\")  ← customer sees it
 
-Every turn must END WITH A TOOL CALL. If your final output is plain text instead of a tool call, the session ends early, the customer never sees it, and the task scores 0 even if everything else was right.
+This applies to EVERY message: follow-up questions, confirmations after booking, final goodbyes — ALL must go through reply_to_customer(). There is no other channel.
 
-Never repeat a tool call you have already made with the same arguments, and never re-ask something the customer already answered — always move to the next distinct step.
+When the customer agrees to an action, do NOT re-confirm in words — immediately call use_store_tool to perform it.
 
-The conversation is over ONLY when the text returned by reply_to_customer() contains '[the conversation has ended]'. Until you literally see that, keep going.
+Never repeat a tool call with the same arguments and never re-ask something the customer already answered.
 
-Typical flow: get_task -> gather needed info via reply_to_customer + use_store_tool lookups -> present options/summary via reply_to_customer -> on customer 'yes', use_store_tool to perform the action -> reply_to_customer with confirmation -> continue until '[the conversation has ended]'.
+Typical flow: get_task → gather info via reply_to_customer + use_store_tool lookups → present options via reply_to_customer → on customer 'yes', use_store_tool to perform it → reply_to_customer with confirmation → continue until '[the conversation has ended]'.
 
-Follow the store policy returned by get_task(). Get explicit customer confirmation before any booking-database change, as the policy requires."
+Follow the store policy returned by get_task(). Get explicit customer confirmation before any booking-database change."
 
 # ---------- signal handling --------------------------------------------------
 # Clean up tmux sessions on SIGTERM/SIGINT so dashboard kills don't leave orphans
@@ -629,13 +628,15 @@ JSON
     echo "[warn] agent exited non-zero on task $TID"
   }
 
+  # Write stub result if agent never produced one (timeout before taubench wrote it)
+  if [[ ! -f "$RES" ]]; then
+    echo "[warn] no result file for task $TID — writing stub (reward=0, run_status=no_result)"
+    printf '{"task_index":%s,"reward":0.0,"done":false,"run_status":"no_result"}\n' "$TID" > "$RES"
+  fi
+
   # Read reward (with error isolation)
   R=0
-  if [[ -f "$RES" ]]; then
-    R=$(${VENV_PY} -c "import json;print(json.load(open('$RES'))['reward'])" 2>/dev/null || echo 0)
-  else
-    echo "[warn] no result file for task $TID — reward=0"
-  fi
+  R=$(${VENV_PY} -c "import json;print(json.load(open('$RES'))['reward'])" 2>/dev/null || echo 0)
 
   echo "task $TID reward: $R"
   REWARDS+=("$R")
