@@ -348,5 +348,39 @@ if [ -f "$SUMMARY_JSON" ]; then
     fi
 fi
 
+# Write the results file in the format expected by the eval-runner Rust service.
+# The runner looks for $EVAL_RUNNER_OUTPUT_DIR/{eval_run_id}_results.json after
+# run.sh completes. Without it the runner returns Ok(None) and marks the run
+# FAILED ("No results file produced by run.sh") even when the benchmark scored > 0.
+EVAL_OUTPUT_DIR="${EVAL_RUNNER_OUTPUT_DIR:-${SCRIPT_DIR}/output}"
+mkdir -p "$EVAL_OUTPUT_DIR"
+EVAL_RESULTS_FILE="${EVAL_OUTPUT_DIR}/${RUN_ID}_results.json"
+
+if [ -f "$SUMMARY_JSON" ]; then
+    SUMMARY_PATH="$SUMMARY_JSON" EVAL_RESULTS_PATH="$EVAL_RESULTS_FILE" python3 -c "
+import json, os
+summary = json.load(open(os.environ['SUMMARY_PATH']))
+result = {
+    'metrics': {
+        'main': {'name': 'pass@1', 'value': float(summary.get('pass_at_1', 0.0))},
+        'secondary': {
+            'resolved': summary.get('resolved', 0),
+            'total_tasks': summary.get('total_tasks', 0)
+        },
+        'additional': {
+            'run_status': summary.get('run_status', 'completed'),
+            'domain': summary.get('domain', ''),
+            'agent': summary.get('agent', ''),
+            'model': summary.get('model', '')
+        }
+    }
+}
+json.dump(result, open(os.environ['EVAL_RESULTS_PATH'], 'w'), indent=2)
+" 2>/dev/null || printf '{"metrics":{"main":{"name":"pass@1","value":0.0},"secondary":{},"additional":{"run_status":"error"}}}\n' > "$EVAL_RESULTS_FILE"
+else
+    printf '{"metrics":{"main":{"name":"pass@1","value":0.0},"secondary":{},"additional":{"run_status":"infra_error"}}}\n' > "$EVAL_RESULTS_FILE"
+fi
+echo -e "${BLUE}[INFO]${NC} Eval-runner results file written: ${EVAL_RESULTS_FILE}"
+
 echo -e "${GREEN}[SUCCESS]${NC} tau-agentic benchmark complete!"
 echo -e "${BLUE}[INFO]${NC} Results available in ${RESULTS_DIR}/"
