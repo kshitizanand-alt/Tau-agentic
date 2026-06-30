@@ -360,15 +360,20 @@ if [ -f "$SUMMARY_JSON" ]; then
     SUMMARY_PATH="$SUMMARY_JSON" EVAL_RESULTS_PATH="$EVAL_RESULTS_FILE" python3 -c "
 import json, os
 summary = json.load(open(os.environ['SUMMARY_PATH']))
+resolved   = summary.get('resolved', 0)
+unresolved = summary.get('unresolved', 0)
+total      = summary.get('total_tasks', 0)
 result = {
     'metrics': {
-        'main': {'name': 'pass@1', 'value': float(summary.get('pass_at_1', 0.0))},
-        'secondary': {},
+        'main': {'name': 'total_resolved', 'value': float(resolved)},
+        'secondary': {
+            'pass@1': float(resolved)
+        },
         'additional': {
             'pass@1': {
-                'resolved': summary.get('resolved', 0),
-                'unresolved': summary.get('unresolved', 0),
-                'total_tasks': summary.get('total_tasks', 0)
+                'resolved':    resolved,
+                'unresolved':  unresolved,
+                'total_tasks': total
             },
             'run_status': summary.get('run_status', 'completed'),
             'agent':      summary.get('agent', ''),
