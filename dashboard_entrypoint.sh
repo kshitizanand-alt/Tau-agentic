@@ -363,15 +363,17 @@ summary = json.load(open(os.environ['SUMMARY_PATH']))
 result = {
     'metrics': {
         'main': {'name': 'pass@1', 'value': float(summary.get('pass_at_1', 0.0))},
-        'secondary': {
-            'resolved': summary.get('resolved', 0),
-            'total_tasks': summary.get('total_tasks', 0)
-        },
+        'secondary': {},
         'additional': {
+            'pass@1': {
+                'resolved': summary.get('resolved', 0),
+                'unresolved': summary.get('unresolved', 0),
+                'total_tasks': summary.get('total_tasks', 0)
+            },
             'run_status': summary.get('run_status', 'completed'),
-            'domain': summary.get('domain', ''),
-            'agent': summary.get('agent', ''),
-            'model': summary.get('model', '')
+            'agent':      summary.get('agent', ''),
+            'model':      summary.get('model', ''),
+            'domain':     summary.get('domain', '')
         }
     }
 }
