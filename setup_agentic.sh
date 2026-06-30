@@ -126,7 +126,7 @@ if command -v npm >/dev/null 2>&1; then
 
     # Install with unsafe-perm to allow post-install scripts on root-owned systems
     npm install -g --unsafe-perm @anthropic-ai/claude-code 2>/dev/null || echo "    ⚠️  Claude Code install failed (will retry later)"
-    npm install -g --unsafe-perm opencode 2>/dev/null || echo "    ⚠️  OpenCode install failed (will retry later)"
+    npm install -g --unsafe-perm opencode-ai 2>/dev/null || echo "    ⚠️  OpenCode install failed (will retry later)"
 
     # Verify they're in PATH now
     if command -v claude >/dev/null 2>&1; then
