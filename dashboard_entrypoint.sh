@@ -356,7 +356,16 @@ EVAL_OUTPUT_DIR="${EVAL_RUNNER_OUTPUT_DIR:-${SCRIPT_DIR}/output}"
 mkdir -p "$EVAL_OUTPUT_DIR"
 EVAL_RESULTS_FILE="${EVAL_OUTPUT_DIR}/${RUN_ID}_results.json"
 
+# Only write the results file when the benchmark actually ran (run_status=completed).
+# For infra_error runs (missing CLI, setup failures, etc.) we intentionally skip it:
+# the eval-runner returns Ok(None) → marks the run FAILED on the dashboard, which
+# correctly distinguishes "agent scored 0" (COMPLETED) from "pipeline never started".
+RUN_STATUS_VAL="unknown"
 if [ -f "$SUMMARY_JSON" ]; then
+    RUN_STATUS_VAL=$(python3 -c "import json; print(json.load(open('$SUMMARY_JSON')).get('run_status','unknown'))" 2>/dev/null || echo "unknown")
+fi
+
+if [ -f "$SUMMARY_JSON" ] && [ "$RUN_STATUS_VAL" != "infra_error" ]; then
     SUMMARY_PATH="$SUMMARY_JSON" EVAL_RESULTS_PATH="$EVAL_RESULTS_FILE" python3 -c "
 import json, os
 summary = json.load(open(os.environ['SUMMARY_PATH']))
@@ -383,11 +392,11 @@ result = {
     }
 }
 json.dump(result, open(os.environ['EVAL_RESULTS_PATH'], 'w'), indent=2)
-" 2>/dev/null || printf '{"metrics":{"main":{"name":"pass@1","value":0.0},"secondary":{},"additional":{"run_status":"error"}}}\n' > "$EVAL_RESULTS_FILE"
+" 2>/dev/null || printf '{"metrics":{"main":{"name":"total_resolved","value":0.0},"secondary":{},"additional":{"run_status":"error"}}}\n' > "$EVAL_RESULTS_FILE"
+    echo -e "${BLUE}[INFO]${NC} Eval-runner results file written: ${EVAL_RESULTS_FILE}"
 else
-    printf '{"metrics":{"main":{"name":"pass@1","value":0.0},"secondary":{},"additional":{"run_status":"infra_error"}}}\n' > "$EVAL_RESULTS_FILE"
+    echo -e "${YELLOW}[WARN]${NC} Skipping results file (run_status=${RUN_STATUS_VAL}) — dashboard will mark run FAILED"
 fi
-echo -e "${BLUE}[INFO]${NC} Eval-runner results file written: ${EVAL_RESULTS_FILE}"
 
 echo -e "${GREEN}[SUCCESS]${NC} tau-agentic benchmark complete!"
 echo -e "${BLUE}[INFO]${NC} Results available in ${RESULTS_DIR}/"
