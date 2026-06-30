@@ -581,7 +581,7 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
       # Pass dir, instruction, and model as positional args to avoid quoting
       # issues with multi-line instructions containing single quotes / parens.
       timeout "$TIMEOUT" bash -c \
-        'cd "$1" && opencode run "$2" --model "$3" --auto' \
+        'cd "$1" && opencode run "$2" --model "$3" --format json --dangerously-skip-permissions' \
         -- "${SCRIPT_DIR}/configs" "$INSTRUCTION" "grid/$MODEL" \
         > "$log_file" 2>&1
       local exit_code=$?
