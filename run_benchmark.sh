@@ -221,7 +221,29 @@ partial = [i for i, r in enumerate(rewards) if 0 < r < 1.0]
 # run_status: "completed" = agent ran (conversation started), score is what it is.
 # Mirrors swe-auto-eval's final_status="no_patch" vs "completed" distinction:
 # model performance (score=0) != pipeline failure.
-run_status = "completed"
+#
+# Detect the second class of infra failure: the results file exists but EVERY
+# task is a stub written because the agent never produced a result
+# (run_status="no_result" — e.g. the agent binary printed help and exited, or
+# crashed on launch). That is a pipeline failure, not a model scoring 0, so we
+# surface it as infra_error → the dashboard marks the run FAILED.
+label = f"{agent}+{model}"
+task_statuses = []
+for tid in task_ids:
+    task_file = out_dir / f"{label}__task_{tid}.json"
+    if task_file.exists():
+        try:
+            with open(task_file) as tf:
+                task_statuses.append(json.load(tf).get("run_status", "completed"))
+        except (json.JSONDecodeError, OSError):
+            task_statuses.append("no_result")
+    else:
+        task_statuses.append("no_result")
+
+if task_statuses and all(s == "no_result" for s in task_statuses):
+    run_status = "infra_error"
+else:
+    run_status = "completed"
 
 summary = {
     "run_id": run_id,
