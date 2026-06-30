@@ -65,7 +65,7 @@ fi
 
 if [ "$AGENT" = "opencode" ] && ! command -v opencode >/dev/null 2>&1; then
     echo "[ERROR] opencode CLI not found in PATH"
-    echo "        Run: npm install -g opencode"
+    echo "        Run: npm install -g opencode-ai"
     exit 1
 fi
 
@@ -139,6 +139,25 @@ write_opencode_config() {
   cat > "${SCRIPT_DIR}/configs/opencode.json" <<JSON
 {
   "\$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "grid": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Grid AI",
+      "options": {
+        "baseURL": "${GRID_URL}/v1",
+        "apiKey": "${GRID_AI_API_KEY}"
+      },
+      "models": {
+        "${MODEL}": {
+          "name": "${MODEL}",
+          "limit": {
+            "context": 128000,
+            "output": 65536
+          }
+        }
+      }
+    }
+  },
   "mcp": {
     "taubench": {
       "type": "local",
@@ -562,7 +581,7 @@ launch_agent() {   # $1 = task-config path, $2 = agent log file, $3 = task id
       # Pass dir, instruction, and model as positional args to avoid quoting
       # issues with multi-line instructions containing single quotes / parens.
       timeout "$TIMEOUT" bash -c \
-        'cd "$1" && opencode run "$2" --model "$3"' \
+        'cd "$1" && opencode run "$2" --model "$3" --auto' \
         -- "${SCRIPT_DIR}/configs" "$INSTRUCTION" "grid/$MODEL" \
         > "$log_file" 2>&1
       local exit_code=$?
