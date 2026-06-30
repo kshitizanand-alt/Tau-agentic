@@ -64,36 +64,46 @@ Navigate to the dashboard admin panel and fill in the following fields:
 
 ### Input Config (JSON)
 
-Paste the contents of [`input_config_schema.json`](./input_config_schema.json):
+Paste the **exact contents** of [`input_config_schema.json`](./input_config_schema.json).
+That file is the single source of truth — do not hand-edit the JSON below; if the
+two ever disagree, the file wins.
+
+> **IMPORTANT — the `model` field is required.** The dashboard only forwards the
+> model you select in the UI to the benchmark when the schema declares a field
+> named `model` (the dashboard auto-fills it from the chosen model version's Grid
+> alias and passes it as `--model`). If the `model` field is missing, the selected
+> model is silently dropped and `dashboard_entrypoint.sh` falls back to a hardcoded
+> agent→model default (claude→private-large, opencode→glm-latest) — so the UI
+> selection is ignored. Always register with the schema below (or the file).
 
 ```json
 {
-  "schema_version": "1.0",
-  "description": "Input configuration schema for tau-agentic benchmark",
   "fields": [
     {
+      "name": "model",
+      "type": "text",
+      "label": "Model Alias",
+      "description": "Grid model alias to evaluate (auto-filled from the selected model version)",
+      "required": true,
+      "default": "private-large"
+    },
+    {
       "name": "environment",
-      "type": "dropdown",
+      "type": "text",
       "label": "Environment / Domain",
       "description": "The task domain to evaluate on",
       "required": true,
       "default": "airline",
-      "options": [
-        { "value": "airline", "label": "Airline (Customer Service)" },
-        { "value": "retail", "label": "Retail (E-commerce)" }
-      ]
+      "options": ["airline", "retail"]
     },
     {
       "name": "agent",
-      "type": "dropdown",
+      "type": "text",
       "label": "Coding Agent",
       "description": "The agent framework to use for task execution",
       "required": true,
       "default": "claude",
-      "options": [
-        { "value": "claude", "label": "Claude Code (Anthropic)" },
-        { "value": "opencode", "label": "OpenCode" }
-      ]
+      "options": ["claude", "opencode"]
     },
     {
       "name": "max_concurrency",
@@ -102,27 +112,25 @@ Paste the contents of [`input_config_schema.json`](./input_config_schema.json):
       "description": "Number of tasks to run in parallel",
       "required": false,
       "default": 1,
-      "min": 1,
-      "max": 10
+      "constraints": { "min": 1, "max": 10 }
     },
     {
       "name": "task_range",
       "type": "text",
       "label": "Task Range",
-      "description": "Range of task IDs to evaluate",
+      "description": "Range of task IDs to evaluate (e.g., 0-99 for all tasks, 0-9 for quick test)",
       "required": false,
       "default": "0-99",
-      "placeholder": "0-99"
+      "constraints": { "min_length": 1, "max_length": 20 }
     },
     {
       "name": "number_of_trials",
       "type": "number",
       "label": "Number of Trials",
-      "description": "Number of independent evaluation runs",
+      "description": "Number of independent evaluation runs to average over",
       "required": false,
       "default": 1,
-      "min": 1,
-      "max": 5
+      "constraints": { "min": 1, "max": 5 }
     }
   ]
 }

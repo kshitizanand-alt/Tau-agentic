@@ -177,6 +177,13 @@ done
 # ---------------------------------------------------------------------------
 # Derive model from agent if not explicitly provided
 # ---------------------------------------------------------------------------
+# NOTE: This fallback should only fire for direct CLI runs. For dashboard runs
+# the model the user picked in the UI must arrive as --model (the eval's
+# input_config_schema.json declares a "model" field so the dashboard forwards
+# it). If we reach this branch on a dashboard run, the model selection was
+# DROPPED upstream (usually the eval was registered with a schema missing the
+# "model" field) and the run is silently NOT using the selected model — hence
+# the loud warning. See DASHBOARD_REGISTRATION.md.
 if [ -z "$AGENT_LLM" ]; then
     case "$AGENT" in
         claude)
@@ -189,7 +196,8 @@ if [ -z "$AGENT_LLM" ]; then
             AGENT_LLM="private-large"
             ;;
     esac
-    echo -e "${BLUE}[INFO]${NC} Derived model '$AGENT_LLM' from agent '$AGENT'"
+    echo -e "${YELLOW}[WARN]${NC} No --model received — falling back to hardcoded default '$AGENT_LLM' for agent '$AGENT'."
+    echo -e "${YELLOW}[WARN]${NC} The UI model selection was NOT applied. Re-register the eval with a schema that includes the 'model' field (see DASHBOARD_REGISTRATION.md)."
 fi
 
 # ---------------------------------------------------------------------------

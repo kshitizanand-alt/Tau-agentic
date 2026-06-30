@@ -4,7 +4,7 @@
       "name": "model",
       "type": "text",
       "label": "Model Alias",
-      "description": "Grid model alias to evaluate (e.g., private-large, open-large)",
+      "description": "Grid model alias to evaluate (auto-filled from the selected model version)",
       "required": true,
       "default": "private-large"
     },
